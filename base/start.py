@@ -15,14 +15,16 @@ import psutil
 from dateutil import parser
 
 from pymongo import MongoClient
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 import uvicorn
 from pydantic import BaseModel
 from typing import List, Iterable, Dict, Tuple, Optional, Any
 
 
 def full_s3_key(name, folder):
-    return f'{folder}/{name}' if folder else name
+    ext = 'json' if folder == 'stop' else 'pkl'
+    name_ext = f'{name}.{ext}'
+    return f'{folder}/{name_ext}' if folder else name_ext
 
 
 def core_s3_key(name):
@@ -53,8 +55,17 @@ class Storage:
                 aws_access_key_id=credentials['access_key'],
                 aws_secret_access_key=credentials['secret_key']
             )
+            self.client = boto3.client(
+                service_name='s3',
+                endpoint_url=f'https://{credentials["region"]}.digitaloceanspaces.com',
+                region_name=credentials['region'],
+                aws_access_key_id=credentials['access_key'],
+                aws_secret_access_key=credentials['secret_key']
+            )
         else:
-            self.engine = boto3.resource('s3')
+            self.engine = None
+            self.client = None
+
         self.space = self.engine.Bucket(space)
         self.space_name = space
 
@@ -112,34 +123,6 @@ class Storage:
         os.remove(temp)
         return result
 
-    def add_to_memo(self, text):
-        memo = self.load('memory_usage.txt') or ''
-        self.save(memo + text + '\n', 'memory_usage.txt')
-
-    def add_log(self, text, user):
-        log_file = f'logs_{user}'
-        if text:
-            memo = self.load(log_file, 'user_logs') or ''
-            memo += text + '\n'
-            self.save(memo, log_file, 'user_logs')
-
-
-class User(BaseModel):
-    name: str
-    pwd: str
-    agents: Optional[List[str]]
-
-    @classmethod
-    def from_dict(cls, user_dict):
-        user_dict['agents'] = user_dict.get('agents', [])
-        return cls(**user_dict)
-
-    def __repr__(self):
-        return pformat(self.to_dict())
-
-    def to_dict(self):
-        return {'name': self.name, 'pwd': self.pwd, 'agents': self.agents or []}
-
 
 class Mongo:
 
@@ -156,11 +139,17 @@ class Mongo:
     def user_list(self):
         return [user['name'] for user in self.coll.find({})]
 
+    def all_items(self, category):
+        res = []
+        for u in self.coll.find({}, {category: 1}):
+            res += u[category]
+        return res
+
     def delete_user(self, name: str):
         return self.coll.delete_one({'name': name}).deleted_count
 
-    def insert_user(self, user: User):
-        return self.coll.insert_one(user.to_dict())
+    def insert_user(self, name: str, pwd: str, status: str):
+        return self.coll.insert_one({'name': name, 'pwd': pwd, 'status': status, 'Agents': [], 'Games': []})
 
     def update_one(self, query, fields):
         return self.coll.update_one(query, {'$set': fields, '$currentDate': {'time': True}}).modified_count
@@ -185,5 +174,6 @@ else:
         'user': os.environ.get('MG_USER', None),
         'pwd': os.environ.get('MG_PWD', None)
     }
+
 S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
