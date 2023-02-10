@@ -23,7 +23,10 @@ from typing import List, Iterable, Dict, Tuple, Optional, Any
 
 def full_s3_key(name, folder):
     ext = 'json' if folder == 'stop' else 'pkl'
-    name_ext = f'{name}.{ext}'
+    if name != 'config.json':
+        name_ext = f'{name}.{ext}'
+    else:
+        name_ext = name
     return f'{folder}/{name_ext}' if folder else name_ext
 
 
@@ -72,7 +75,7 @@ class Storage:
     def list_files(self, folder=None):
         files = [o.key for o in self.space.objects.all()]
         if folder:
-            return [f for f in files if (f.startswith(f'{folder}/') and f != f'{folder}/')]
+            return [f.split('/')[1] for f in files if (f.startswith(f'{folder}/') and f != f'{folder}/')]
         else:
             return files
 
@@ -136,6 +139,9 @@ class Mongo:
     def find_user(self, name: str):
         return self.coll.find_one({'name': name})
 
+    def find_owners(self, name: str, kind: str):
+        return self.coll.find({kind: {"$in": [name]}})
+
     def user_list(self):
         return [user['name'] for user in self.coll.find({})]
 
@@ -148,11 +154,23 @@ class Mongo:
     def delete_user(self, name: str):
         return self.coll.delete_one({'name': name}).deleted_count
 
-    def insert_user(self, name: str, pwd: str, status: str):
-        return self.coll.insert_one({'name': name, 'pwd': pwd, 'status': status, 'Agents': [], 'Games': []})
+    def delete_item(self, name: str, kind: str):
+        return self.coll.update_many({}, {'$pull': {kind: name}}).modified_count
 
-    def update_one(self, query, fields):
-        return self.coll.update_one(query, {'$set': fields, '$currentDate': {'time': True}}).modified_count
+    def new_user(self, name: str, pwd: str, status: str):
+        return self.coll.insert_one({
+            'name': name,
+            'pwd': pwd,
+            'status': status,
+            'Agents': [],
+            'Games': [],
+            'job': None,
+            'logs': []
+        })
+        # return self.coll.insert_one({'name': name, 'pwd': pwd, 'status': status, 'Agents': [], 'Games': []})
+
+    # def update_one(self, query, fields):
+    #     return self.coll.update_one(query, {'$set': fields, '$currentDate': {'time': True}}).modified_count
 
 
 working_directory = os.path.dirname(os.path.realpath(__file__))
@@ -177,3 +195,8 @@ else:
 
 S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
+
+
+def delete_file(name, kind):
+    DB.delete_item(name, kind)
+    S3.delete(name, kind)

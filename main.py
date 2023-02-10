@@ -39,18 +39,18 @@ async def manage_users(request: Request):
                 return {'status': f'User {name} already exists'}
             else:
                 status = 'admin' if name == 'Loki' else 'guest'
-                DB.insert_user(name, pwd, status)
-                profile = {'status': status, 'Agents': [], 'Games': []}
+                DB.new_user(name, pwd, status)
+                profile = {'status': status, 'Agents': ['config.json'], 'Games': ['config.json']}
                 content = {
                     'msg': f'Welcome {name}!',
                     'profile': profile
                 }
         case 'delete':
             for agent in user['Agents']:
-                S3.delete(agent, 'Agents')
+                delete_file(agent, 'Agents')
                 S3.delete(agent, 'stop')
             for game in user['Games']:
-                S3.delete(game, 'Games')
+                delete_file(game, 'Games')
             DB.delete_user(name)
             content = {
                 'msg': f'{name} successfully deleted'
@@ -63,10 +63,14 @@ async def manage_users(request: Request):
 @app.post('/file')
 async def manage_files(request: Request):
     to_do = await request.json()
-    action = to_do['action']
     kind = to_do['kind']
     name = to_do['name']
-    if name not in S3.list_files(folder=kind):
+    action = to_do['action']
+    try:
+        file_list = S3.list_files(folder=kind)
+    except Exception as ex:
+        return {'status': f'Looks like S3 Storage is inaccessible: {str(ex)}'}
+    if name not in file_list:
         return {'status': f'No file with supplied name: {name}'}
     match action:
         case 'download':
@@ -81,7 +85,7 @@ async def manage_files(request: Request):
                 return {'status': f'Looks like S3 storage failed: {str(ex)}'}
         case 'delete':
             try:
-                S3.delete(name, kind)
+                delete_file(name, kind)
                 content = {
                     'msg': f'{name} successfully deleted'
                 }
@@ -90,6 +94,12 @@ async def manage_files(request: Request):
                 return {'status': f'Looks like S3 storage failed: {str(ex)}'}
         case _:
             return {'status': 'ok', 'content': None}
+
+
+@app.post('/file/all')
+async def manage_files(request: Request):
+    to_do = await request.json()
+    return {'status': 'ok', 'content': {'list': S3.list_files(folder=to_do['kind'])}}
 
 
 if __name__ == '__main__':
