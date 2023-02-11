@@ -1,10 +1,4 @@
 {
     "s3_credentials": "/Users/abachurin/aws/do_credentials.json",
-    "mongo_credentials": "/Users/abachurin/aws/mongo_credentials.json",
-    "intervals": {
-        "refresh_sec": 60,
-        "vc_sec": 300,
-        "initiate_logs": 3000,
-        "logs": 1000
-    }
+    "mongo_credentials": "/Users/abachurin/aws/mongo_credentials.json"
 }

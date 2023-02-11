@@ -1,4 +1,6 @@
-from base.start import *
+from fastapi import FastAPI, HTTPException, Request
+import uvicorn
+from base.utils import *
 
 app = FastAPI()
 
@@ -47,10 +49,10 @@ async def manage_users(request: Request):
                 }
         case 'delete':
             for agent in user['Agents']:
-                delete_file(agent, 'Agents')
+                delete_item(agent, 'Agents')
                 S3.delete(agent, 'stop')
             for game in user['Games']:
-                delete_file(game, 'Games')
+                delete_item(game, 'Games')
             DB.delete_user(name)
             content = {
                 'msg': f'{name} successfully deleted'
@@ -85,7 +87,7 @@ async def manage_files(request: Request):
                 return {'status': f'Looks like S3 storage failed: {str(ex)}'}
         case 'delete':
             try:
-                delete_file(name, kind)
+                delete_item(name, kind)
                 content = {
                     'msg': f'{name} successfully deleted'
                 }
@@ -96,10 +98,42 @@ async def manage_files(request: Request):
             return {'status': 'ok', 'content': None}
 
 
-@app.post('/file/all')
+@app.post('/all_items')
 async def manage_files(request: Request):
     to_do = await request.json()
-    return {'status': 'ok', 'content': {'list': S3.list_files(folder=to_do['kind'])}}
+    return {'status': 'ok', 'content': {'list': DB.all_items(kind=to_do['kind'])}}
+
+
+@app.post('/replay')
+async def manage_files(request: Request):
+    to_do = await request.json()
+    game = S3.load(to_do['name'], 'Games')
+    return {'status': 'ok', 'content': {'list': DB.all_items(kind=to_do['kind'])}}
+
+
+@app.post('/slow')
+async def slow_job(request: Request):
+    to_do = await request.json()
+    match to_do['job']:
+        case _:
+            func = to_do['job']
+            params = to_do['params']
+    try:
+        res = Q.enqueue(func, params)
+        return {'status': 'ok', 'msg': res.id}
+    except Exception as ex:
+        return {'status': f'Unable to place job in Queue: {str(ex)}'}
+
+
+@app.post('/check_slow')
+async def check_slow_job(request: Request):
+    to_do = await request.json()
+    idx = to_do['idx']
+    try:
+        job = Job(idx, REDIS.conn)
+        return {'status': 'ok', 'msg': job.get_status()}
+    except Exception as ex:
+        return {'status': f'Unable to get job status: {str(ex)}'}
 
 
 if __name__ == '__main__':
