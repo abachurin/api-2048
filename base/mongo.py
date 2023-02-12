@@ -11,8 +11,11 @@ class Mongo:
         self.users = self.db['users']
         self.jobs = self.db['jobs']
 
-    def find_user(self, name: str):
-        return self.users.find_one({'name': name})
+    def find_user(self, name: str, ex_id=True):
+        user = self.users.find_one({'name': name})
+        if ex_id and user is not None:
+            user.pop('_id')
+        return user
 
     def find_owners(self, name: str, kind: str):
         return self.users.find({kind: {"$in": [name]}})
@@ -33,7 +36,7 @@ class Mongo:
         return self.users.update_many({}, {'$pull': {kind: name}}).modified_count
 
     def new_user(self, name: str, pwd: str, status: str):
-        return self.users.insert_one({
+        user = {
             'name': name,
             'pwd': pwd,
             'status': status,
@@ -42,4 +45,7 @@ class Mongo:
             'jobs': [],
             'logs': [],
             'log_break': 0
-        })
+        }
+        self.users.insert_one(user)
+        user.pop('_id')
+        return user

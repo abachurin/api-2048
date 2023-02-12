@@ -31,3 +31,6 @@ RQ = REDIS.q
 def delete_item(name, kind):
     DB.delete_item(name, kind)
     S3.delete(name, kind)
+
+
+

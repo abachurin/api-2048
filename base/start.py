@@ -1,15 +1,7 @@
-from datetime import datetime, timedelta
-# import numpy as np
-import time
-import sys
-from pprint import pprint, pformat
-import random
-import json
-from collections import deque
+from datetime import datetime
 import os
-import time
-import psutil
-from dateutil import parser
+import json
+from pprint import pprint
 
 LOCAL = os.environ.get('S3_URL', 'local') == 'local'
 

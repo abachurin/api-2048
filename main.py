@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 import uvicorn
 from base.utils import *
 
@@ -23,17 +23,9 @@ async def manage_users(request: Request):
             if user['pwd'] != pwd:
                 return {'status': f'Wrong password!'}
             else:
-                status = user['status']
-                if status == 'guest':
-                    agents = user['Agents']
-                    games = user['Games']
-                else:
-                    agents = DB.all_items('Agents')
-                    games = DB.all_items('Games')
-                profile = {'status': status, 'Agents': agents, 'Games': games}
                 content = {
                     'msg': f'Welcome back {name}!',
-                    'profile': profile
+                    'profile': user
                 }
         case 'new':
             user = DB.find_user(name)
@@ -41,16 +33,14 @@ async def manage_users(request: Request):
                 return {'status': f'User {name} already exists'}
             else:
                 status = 'admin' if name == 'Loki' else 'guest'
-                DB.new_user(name, pwd, status)
-                profile = {'status': status, 'Agents': ['config.json'], 'Games': ['config.json']}
+                user = DB.new_user(name, pwd, status)
                 content = {
                     'msg': f'Welcome {name}!',
-                    'profile': profile
+                    'profile': user
                 }
         case 'delete':
             for agent in user['Agents']:
                 delete_item(agent, 'Agents')
-                S3.delete(agent, 'stop')
             for game in user['Games']:
                 delete_item(game, 'Games')
             DB.delete_user(name)
@@ -69,7 +59,7 @@ async def manage_files(request: Request):
     name = to_do['name']
     action = to_do['action']
     try:
-        file_list = S3.list_files(folder=kind)
+        file_list = S3.list_files(kind=kind)
     except Exception as ex:
         return {'status': f'Looks like S3 Storage is inaccessible: {str(ex)}'}
     if name not in file_list:
@@ -119,7 +109,7 @@ async def slow_job(request: Request):
             func = to_do['job']
             params = to_do['params']
     try:
-        res = Q.enqueue(func, params)
+        res = RQ.enqueue(func, params)
         return {'status': 'ok', 'msg': res.id}
     except Exception as ex:
         return {'status': f'Unable to place job in Queue: {str(ex)}'}
