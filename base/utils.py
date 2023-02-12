@@ -28,9 +28,15 @@ REDIS = RedisQueue()
 RQ = REDIS.q
 
 
-def delete_item(name, kind):
+def delete_item_total(name: str, kind: str):
     DB.delete_item(name, kind)
     S3.delete(name, kind)
 
 
-
+def delete_user_total(user: dict):
+    for agent in user['Agents']:
+        delete_item_total(agent, 'Agents')
+    for game in user['Games']:
+        delete_item_total(game, 'Games')
+    DB.stop_job(user['working'])
+    DB.delete_user(user['name'])

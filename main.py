@@ -15,13 +15,18 @@ async def manage_users(request: Request):
     to_do = await request.json()
     name, pwd, action = to_do['name'], to_do['pwd'], to_do['action']
     user = DB.find_user(name)
+    content = None
     match action:
         case 'submit':
             user = DB.find_user(name)
             if user is None:
-                return {'status': f"User {name} doesn't exist. Create with 'New' button"}
+                return {
+                    'status': f"User {name} doesn't exist. Create with 'New' button"
+                }
             if user['pwd'] != pwd:
-                return {'status': f'Wrong password!'}
+                return {
+                    'status': f'Wrong password!'
+                }
             else:
                 content = {
                     'msg': f'Welcome back {name}!',
@@ -30,7 +35,9 @@ async def manage_users(request: Request):
         case 'new':
             user = DB.find_user(name)
             if user:
-                return {'status': f'User {name} already exists'}
+                return {
+                    'status': f'User {name} already exists'
+                }
             else:
                 status = 'admin' if name == 'Loki' else 'guest'
                 user = DB.new_user(name, pwd, status)
@@ -39,17 +46,11 @@ async def manage_users(request: Request):
                     'profile': user
                 }
         case 'delete':
-            for agent in user['Agents']:
-                delete_item(agent, 'Agents')
-            for game in user['Games']:
-                delete_item(game, 'Games')
-            DB.delete_user(name)
-            content = {
-                'msg': f'{name} successfully deleted'
-            }
-        case _:
-            content = None
-    return {'status': 'ok', 'content': content}
+            delete_user_total(user)
+    return {
+        'status': 'ok',
+        'content': content
+    }
 
 
 @app.post('/file')
@@ -58,47 +59,95 @@ async def manage_files(request: Request):
     kind = to_do['kind']
     name = to_do['name']
     action = to_do['action']
-    try:
-        file_list = S3.list_files(kind=kind)
-    except Exception as ex:
-        return {'status': f'Looks like S3 Storage is inaccessible: {str(ex)}'}
+    file_list = S3.list_files(kind=kind)
     if name not in file_list:
-        return {'status': f'No file with supplied name: {name}'}
+        return {
+            'status': f'No file with supplied name: {name}'
+        }
+    content = None
     match action:
         case 'download':
-            try:
-                url = S3.client.generate_presigned_url('get_object', Params={
-                    'Bucket': S3.space_name, 'Key': full_s3_key(name, kind)}, ExpiresIn=60)
-                content = {
-                    'url': url
-                }
-                return {'status': 'ok', 'content': content}
-            except Exception as ex:
-                return {'status': f'Looks like S3 storage failed: {str(ex)}'}
+            url = S3.client.generate_presigned_url('get_object', Params={
+                'Bucket': S3.space_name, 'Key': full_s3_key(name, kind)}, ExpiresIn=60)
+            content = url
         case 'delete':
-            try:
-                delete_item(name, kind)
-                content = {
-                    'msg': f'{name} successfully deleted'
-                }
-                return {'status': 'ok', 'content': content}
-            except Exception as ex:
-                return {'status': f'Looks like S3 storage failed: {str(ex)}'}
-        case _:
-            return {'status': 'ok', 'content': None}
+            delete_item_total(name, kind)
+    return {
+        'status': 'ok',
+        'content': content
+    }
 
 
 @app.post('/all_items')
 async def manage_files(request: Request):
     to_do = await request.json()
-    return {'status': 'ok', 'content': {'list': DB.all_items(kind=to_do['kind'])}}
+    return {
+        'status': 'ok',
+        'content': DB.all_items(item=to_do['kind'])
+    }
+
+
+@app.post('/admin')
+async def manage_users(request: Request):
+    to_do = await request.json()
+    job = to_do['job']
+    if 'name' in to_do:
+        user = DB.find_user(to_do['name'])
+        if not user:
+            return {
+                'status': f'User {to_do["name"]} does not exist'
+            }
+    content = None
+    match job:
+        case 'user_list':
+            content = DB.all_items('name')
+        case 'status_list':
+            status_list = DB.all_items('status')
+            content = {
+                'list': status_list,
+                'status': user['status']
+            }
+        case 'delete':
+            delete_user_total(user)
+        case 'status':
+            new_status = to_do['status']
+            if new_status == user['status']:
+                return {
+                    'status': f'Status of {to_do["name"]} is already set as {new_status}'
+                }
+            match new_status:
+                case 'admin':
+                    fields = {
+                        'status': 'admin',
+                        'Agents': DB.all_items('Agents'),
+                        'Games': DB.all_items('Games'),
+                        'jobs': DB.all_items('jobs')
+                    }
+                    DB.update_user(to_do["name"], {'status': 'admin'})
+                case 'guest':
+                    fields = {
+                        'status': 'guest'
+                    }
+            DB.update_user(to_do["name"], fields)
+    return {
+        'status': 'ok',
+        'content': content
+    }
 
 
 @app.post('/replay')
 async def manage_files(request: Request):
     to_do = await request.json()
     game = S3.load(to_do['name'], 'Games')
-    return {'status': 'ok', 'content': {'list': DB.all_items(kind=to_do['kind'])}}
+    if game:
+        return {
+            'status': 'ok',
+            'content': game
+        }
+    else:
+        return {
+            'status': f'Game with name {to_do["name"]} is not in Storage'
+        }
 
 
 @app.post('/slow')
@@ -110,7 +159,12 @@ async def slow_job(request: Request):
             params = to_do['params']
     try:
         res = RQ.enqueue(func, params)
-        return {'status': 'ok', 'msg': res.id}
+        DB.add_item(to_do['user'], to_do['description'], 'jobs')
+        DB.add_job(to_do['description'], res.id)
+        return {
+            'status': 'ok',
+            'content': res.id
+        }
     except Exception as ex:
         return {'status': f'Unable to place job in Queue: {str(ex)}'}
 
@@ -121,9 +175,14 @@ async def check_slow_job(request: Request):
     idx = to_do['idx']
     try:
         job = Job(idx, REDIS.conn)
-        return {'status': 'ok', 'msg': job.get_status()}
+        return {
+            'status': 'ok',
+            'content': job.get_status()
+        }
     except Exception as ex:
-        return {'status': f'Unable to get job status: {str(ex)}'}
+        return {
+            'status': f'Unable to get job status: {str(ex)}'
+        }
 
 
 if __name__ == '__main__':
