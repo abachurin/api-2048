@@ -1,10 +1,11 @@
-from rq import Queue, get_current_job
-from rq.job import Job
+from rq import Queue, Connection, Worker
+from rq.command import send_shutdown_command
+
 import redis
 from .start import *
 
 
-class RedisQueue:
+class Redis:
 
     def __init__(self):
         def_host = '127.0.0.1' if LOCAL else 'redis'
@@ -12,4 +13,6 @@ class RedisQueue:
             host=os.getenv('REDIS_HOST', def_host),
             port=os.getenv('REDIS_PORT', 6379)
         )
-        self.q = Queue(connection=self.conn)
+        self.q = {
+            'User name': 'Redis Queue object'
+        }

@@ -2,6 +2,8 @@ from .redis import *
 from .storage import *
 from .mongo import *
 
+import time
+
 working_directory = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(working_directory, 'config.json'), 'r') as f:
     CONF = json.load(f)
@@ -24,19 +26,51 @@ else:
 
 S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
-REDIS = RedisQueue()
+REDIS = Redis()
 RQ = REDIS.q
 
 
 def delete_item_total(name: str, kind: str):
-    DB.delete_item(name, kind)
-    S3.delete(name, kind)
+    if kind == 'Jobs':
+        DB.set_job_status(name, -1)
+    else:
+        DB.delete_item(name, kind)
+        S3.delete(name, kind)
 
 
 def delete_user_total(user: dict):
-    for agent in user['Agents']:
-        delete_item_total(agent, 'Agents')
-    for game in user['Games']:
-        delete_item_total(game, 'Games')
-    DB.stop_job(user['working'])
+    for kind in ('Jobs', 'Agents', 'Games'):
+        for item in user[kind]:
+            delete_item_total(item, kind)
     DB.delete_user(user['name'])
+
+
+def slow_task(params):
+    idx = params['idx']
+    name = params['name']
+    DB.update_user(name, {'working': idx})
+    print(f'Started {idx}')
+
+    params['func'](params)
+
+    print(f'Job {idx} is done')
+    DB.set_job_status(idx, -1)
+    DB.update_user(name, {'working': None})
+
+
+def train_agent(params):
+    for i in range(100):
+        print(i, 'train', params['p'])
+        time.sleep(params['p'])
+
+
+def test_agent(params):
+    for i in range(100):
+        print(i, 'test', params['p'])
+        time.sleep(params['p'])
+
+
+SLOW_TASKS = {
+    'train': train_agent,
+    'test': test_agent
+}

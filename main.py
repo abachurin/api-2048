@@ -28,9 +28,10 @@ async def manage_users(request: Request):
                     'status': f'Wrong password!'
                 }
             else:
+                user['logs'] = DB.adjust_logs(user)
                 content = {
-                    'msg': f'Welcome back {name}!',
-                    'profile': user
+                    'profile': user,
+                    'max_logs': DB.max_logs
                 }
         case 'new':
             user = DB.find_user(name)
@@ -42,14 +43,38 @@ async def manage_users(request: Request):
                 status = 'admin' if name == 'Loki' else 'guest'
                 user = DB.new_user(name, pwd, status)
                 content = {
-                    'msg': f'Welcome {name}!',
-                    'profile': user
+                    'profile': user,
+                    'max_logs': DB.max_logs
                 }
         case 'delete':
             delete_user_total(user)
     return {
         'status': 'ok',
         'content': content
+    }
+
+
+@app.post('/update')
+async def update(request: Request):
+    to_do = await request.json()
+    name = to_do['name']
+    log_break = to_do['log_break']
+    DB.add_log(name, 'log')
+    user = DB.find_user(name)
+    if user is None:
+        return {
+            'status': f"Looks like user {name} doesn't exist anymore"
+        }
+    logs = user['logs']
+    new_logs = user['logs'][log_break:] if len(logs) > log_break else None
+    DB.adjust_logs(user)
+    user.pop('logs')
+    return {
+        'status': 'ok',
+        'content': {
+            'profile': user,
+            'new_logs': new_logs
+        }
     }
 
 
@@ -81,9 +106,14 @@ async def manage_files(request: Request):
 @app.post('/all_items')
 async def manage_files(request: Request):
     to_do = await request.json()
+    kind = to_do['kind']
+    if kind == 'all':
+        content = {v: DB.all_items(item=to_do[v]) for v in DB.FIELDS}
+    else:
+        content = DB.all_items(item=kind)
     return {
         'status': 'ok',
-        'content': DB.all_items(item=to_do['kind'])
+        'content': content
     }
 
 
@@ -99,36 +129,19 @@ async def manage_users(request: Request):
             }
     content = None
     match job:
-        case 'user_list':
-            content = DB.all_items('name')
         case 'status_list':
             status_list = DB.all_items('status')
             content = {
                 'list': status_list,
                 'status': user['status']
             }
-        case 'delete':
-            delete_user_total(user)
         case 'status':
             new_status = to_do['status']
             if new_status == user['status']:
                 return {
                     'status': f'Status of {to_do["name"]} is already set as {new_status}'
                 }
-            match new_status:
-                case 'admin':
-                    fields = {
-                        'status': 'admin',
-                        'Agents': DB.all_items('Agents'),
-                        'Games': DB.all_items('Games'),
-                        'jobs': DB.all_items('jobs')
-                    }
-                    DB.update_user(to_do["name"], {'status': 'admin'})
-                case 'guest':
-                    fields = {
-                        'status': 'guest'
-                    }
-            DB.update_user(to_do["name"], fields)
+            DB.update_user(to_do['name'], {'status': new_status})
     return {
         'status': 'ok',
         'content': content
@@ -153,36 +166,20 @@ async def manage_files(request: Request):
 @app.post('/slow')
 async def slow_job(request: Request):
     to_do = await request.json()
-    match to_do['job']:
-        case _:
-            func = to_do['job']
-            params = to_do['params']
+    task = to_do['task']
+    params = to_do['params']
+    idx = params['idx']
+    name = params['name']
+    params['func'] = SLOW_TASKS[task]
     try:
-        res = RQ.enqueue(func, params)
-        DB.add_item(to_do['user'], to_do['description'], 'jobs')
-        DB.add_job(to_do['description'], res.id)
+        job = RQ.enqueue(slow_task, params, job_id=idx, timeout=-1)
+        DB.add_item(name, idx, 'jobs')
         return {
             'status': 'ok',
-            'content': res.id
+            'content': job.id
         }
     except Exception as ex:
         return {'status': f'Unable to place job in Queue: {str(ex)}'}
-
-
-@app.post('/check_slow')
-async def check_slow_job(request: Request):
-    to_do = await request.json()
-    idx = to_do['idx']
-    try:
-        job = Job(idx, REDIS.conn)
-        return {
-            'status': 'ok',
-            'content': job.get_status()
-        }
-    except Exception as ex:
-        return {
-            'status': f'Unable to get job status: {str(ex)}'
-        }
 
 
 if __name__ == '__main__':
