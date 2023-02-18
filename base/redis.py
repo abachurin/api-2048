@@ -1,4 +1,5 @@
 from rq import Queue, Connection, Worker
+from rq.registry import FailedJobRegistry, Job
 from rq.command import send_shutdown_command
 
 import redis
@@ -13,6 +14,3 @@ class Redis:
             host=os.getenv('REDIS_HOST', def_host),
             port=os.getenv('REDIS_PORT', 6379)
         )
-        self.q = {
-            'User name': 'Redis Queue object'
-        }

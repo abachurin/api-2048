@@ -59,15 +59,25 @@ async def update(request: Request):
     to_do = await request.json()
     name = to_do['name']
     log_break = to_do['log_break']
-    DB.add_log(name, 'log')
     user = DB.find_user(name)
     if user is None:
         return {
             'status': f"Looks like user {name} doesn't exist anymore"
         }
+    if name in RQ:
+        for fail in RQ[name]['fail'].get_job_ids():
+            job = Job.fetch(fail, connection=REDIS.conn)
+            print(job.latest_result())
+            DB.add_log(name, job.latest_result())
+            RQ[name]['fail'].remove(fail, delete_job=True)
+        if len(RQ[name]['q'].jobs) == 0:
+            RQ[name]['worker'].ter
     logs = user['logs']
-    new_logs = user['logs'][log_break:] if len(logs) > log_break else None
-    DB.adjust_logs(user)
+    new_logs = user['logs'][log_break:] if len(logs) > log_break else []
+    if to_do['clear_logs']:
+        DB.update_user(name, {'logs': new_logs})
+    else:
+        DB.adjust_logs(user)
     user.pop('logs')
     return {
         'status': 'ok',
@@ -166,20 +176,32 @@ async def manage_files(request: Request):
 @app.post('/slow')
 async def slow_job(request: Request):
     to_do = await request.json()
-    task = to_do['task']
-    params = to_do['params']
-    idx = params['idx']
-    name = params['name']
-    params['func'] = SLOW_TASKS[task]
+    mode = to_do['mode']
+    agent_idx = to_do['agent']['idx']
+    new = to_do['new']
+    if mode == 'train' and new and agent_idx in DB.all_items('Agents'):
+        return {'status': f'Agent {agent_idx} already exists, choose another name'}
+    idx = to_do['idx']
+    name = to_do['name']
+    to_do['func'] = SLOW_TASKS[mode]
     try:
-        job = RQ.enqueue(slow_task, params, job_id=idx, timeout=-1)
-        DB.add_item(name, idx, 'jobs')
+        if name not in RQ:
+            RQ[name] = {
+                'q': Queue(ame=name, connection=REDIS.conn),
+                'fail': FailedJobRegistry(name=name, connection=REDIS.conn),
+                'worker': Worker(queues=[name], name=name, connection=REDIS.conn)
+            }
+            RQ[name]['worker'].work()
+        job = RQ[name]['q'].enqueue(slow_task, to_do, job_id=idx, timeout=-1)
+        DB.add_array_item(name, idx, 'Jobs')
         return {
             'status': 'ok',
             'content': job.id
         }
     except Exception as ex:
-        return {'status': f'Unable to place job in Queue: {str(ex)}'}
+        return {
+            'status': f'Unable to place job in Queue: {str(ex)}'
+        }
 
 
 if __name__ == '__main__':

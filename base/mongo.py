@@ -3,7 +3,7 @@ from pymongo import MongoClient
 
 class Mongo:
 
-    max_logs = 5
+    max_logs = 500
     FIELDS = ('Agents', 'Games', 'Jobs')
 
     def __init__(self, credentials: dict):
@@ -12,7 +12,7 @@ class Mongo:
         self.client = MongoClient(self.cluster)
         self.db = self.client['robot-2048']
         self.users = self.db['users']
-        self.jobs = self.db['jobs']
+        self.array_names = ('Agents', 'Games', 'Jobs')
 
     def find_user(self, name: str):
         user = self.users.find_one({'name': name})
@@ -28,10 +28,40 @@ class Mongo:
             'name': name,
             'pwd': pwd,
             'status': status,
-            'Agents': [],
-            'Games': [],
-            'Jobs': [],
-            'logs': [f'Hello {name}']
+            'Agents': [
+                {
+                    'idx': 'A',
+                    'n': 4,
+                    'alpha': 0.2,
+                    'decay': 0.9,
+                    'step': 2000,
+                    'min_alpha': 0.01
+                }
+            ],
+            'Games': [
+                {
+                    'idx': 'Best_of_A',
+                    'initial': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
+                    'moves': [0, 1, 2, 3],
+                    'tiles': [[0, 3, 2], [3, 0, 1], [2, 3, 1], [2, 1, 1]]
+                }
+            ],
+            'Jobs': [
+                {
+                    'idx': 1,
+                    'status': 2
+                },
+                {
+                    'idx': 2,
+                    'status': 3
+                },
+                {
+                    'idx': 3,
+                    'status': 5
+                }
+            ],
+            'current_job': None,
+            'logs': [f'Hello {name}! Click Help if unsure what this is about']
         }
         self.users.insert_one(user)
         user.pop('_id')
@@ -40,19 +70,21 @@ class Mongo:
     def update_user(self, name: str, fields: dict):
         self.users.update_one({'name': name}, {'$set': fields})
 
-    def all_items(self, item: str):
-        return self.users.distinct(item)
+    def all_items(self, kind: str):
+        if kind in self.array_names:
+            kind += '.idx'
+        return self.users.distinct(kind)
 
     def admin_list(self):
         return [user['name'] for user in self.users.find({'status': 'admin'})]
 
-    def delete_item(self, name: str, kind: str):
-        return self.users.update_many({}, {'$pull': {kind: name}}).modified_count
+    def delete_array_item(self, idx: str, kind: str):
+        self.users.update_one({}, {'$pull': {kind: {'idx': idx}}})
 
-    def add_item(self, user_name: str, item_name: str, kind: str):
-        if item_name in self.all_items(kind):
+    def add_array_item(self, name: str, item: dict, kind: str):
+        if item['idx'] in self.all_items(kind):
             return False
-        self.users.update_one({'name': user_name}, {'$push': {kind: item_name}})
+        self.users.update_one({'name': name}, {'$push': {kind: item}})
         return True
 
     def add_log(self, name: str, log: str):
@@ -71,11 +103,12 @@ class Mongo:
     # Job status: 1 = work, 0 = stop, -1 = kill
     def set_job_status(self, idx, status):
         if status == -1:
-            self.jobs.delete_one({'_id': idx})
+            self.delete_array_item(idx, 'Jobs')
         else:
-            self.jobs.update_one({'_id': idx}, {'$set': {'status': status}}, upsert=True)
+            self.users.update_one({'Jobs.idx': idx}, {'$set': {'Jobs.$.status': status}})
 
     def get_job_status(self, idx):
-        job = self.jobs.find_one({'_id': idx})
-        return -1 if job is None else job['status']
-
+        try:
+            return self.users.find_one({'Jobs.idx': idx}, {'Jobs.$': 1})['Jobs'][0]['status']
+        except TypeError:
+            return -1

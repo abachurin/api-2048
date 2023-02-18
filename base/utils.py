@@ -27,14 +27,20 @@ else:
 S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
 REDIS = Redis()
-RQ = REDIS.q
+RQ = {
+    'User name': {
+        'q': 'Redis Queue object',
+        'fail': 'FailedJobRegistry object for that Queue',
+        'worker': 'Worker listening tio that Queue'
+    }
+}
 
 
 def delete_item_total(name: str, kind: str):
     if kind == 'Jobs':
         DB.set_job_status(name, -1)
     else:
-        DB.delete_item(name, kind)
+        DB.delete_array_item(name, kind)
         S3.delete(name, kind)
 
 
@@ -45,32 +51,67 @@ def delete_user_total(user: dict):
     DB.delete_user(user['name'])
 
 
-def slow_task(params):
-    idx = params['idx']
-    name = params['name']
-    DB.update_user(name, {'working': idx})
-    print(f'Started {idx}')
-
-    params['func'](params)
-
-    print(f'Job {idx} is done')
-    DB.set_job_status(idx, -1)
-    DB.update_user(name, {'working': None})
-
-
 def train_agent(params):
+    name = params['name']
+    idx = params['idx']
+    new = params['new']
+    if new:
+        agent = params['agent']
+        DB.add_array_item(name, agent, 'Agents')
+    status = 1
     for i in range(100):
-        print(i, 'train', params['p'])
-        time.sleep(params['p'])
+        print(i, 'train', name)
+        status = DB.get_job_status(idx)
+        if status == 0:
+            DB.add_log(name, f'STOP!: {idx}')
+            break
+        elif status == -1:
+            DB.add_log(name, f'KILL!: {idx}')
+            break
+        time.sleep(2)
+    return status
 
 
 def test_agent(params):
+    name = params['name']
+    idx = params['idx']
+    status = 1
     for i in range(100):
-        print(i, 'test', params['p'])
-        time.sleep(params['p'])
+        print(i, 'test', name)
+        status = DB.get_job_status(idx)
+        if status == 0:
+            DB.add_log(name, f'STOP!: {idx}')
+            break
+        elif status == -1:
+            DB.add_log(name, f'KILL!: {idx}')
+            break
+        time.sleep(2)
+    return status
 
 
 SLOW_TASKS = {
     'train': train_agent,
     'test': test_agent
 }
+
+
+def slow_task(params):
+    idx = params['idx']
+    name = params['name']
+    DB.update_user(name, {'current_job': idx})
+    DB.add_log(name, f'Started Job: {idx}')
+
+    status = params['func'](params)
+    match status:
+        case 1:
+            msg = f'Job {idx} complete'
+        case 0:
+            msg = f'Job {idx} stopped by {name}'
+        case -1:
+            msg = f'Job {idx} killed by {name}'
+        case _:
+            msg = f'Strange, no output from job {idx}'
+
+    DB.add_log(name, msg)
+    DB.delete_array_item(idx, 'Jobs')
+    DB.update_user(name, {'current_job': None})
