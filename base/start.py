@@ -3,8 +3,6 @@ import os
 import json
 from pprint import pprint
 
-LOCAL = os.environ.get('S3_URL', 'local') == 'local'
-
 
 def full_s3_key(name, kind):
     return f'{kind}/{name}.pkl' if kind else name

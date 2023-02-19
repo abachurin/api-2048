@@ -64,14 +64,6 @@ async def update(request: Request):
         return {
             'status': f"Looks like user {name} doesn't exist anymore"
         }
-    if name in RQ:
-        for fail in RQ[name]['fail'].get_job_ids():
-            job = Job.fetch(fail, connection=REDIS.conn)
-            print(job.latest_result())
-            DB.add_log(name, job.latest_result())
-            RQ[name]['fail'].remove(fail, delete_job=True)
-        if len(RQ[name]['q'].jobs) == 0:
-            RQ[name]['worker'].ter
     logs = user['logs']
     new_logs = user['logs'][log_break:] if len(logs) > log_break else []
     if to_do['clear_logs']:
@@ -92,21 +84,25 @@ async def update(request: Request):
 async def manage_files(request: Request):
     to_do = await request.json()
     kind = to_do['kind']
-    name = to_do['name']
+    idx = to_do['idx']
     action = to_do['action']
-    file_list = S3.list_files(kind=kind)
-    if name not in file_list:
-        return {
-            'status': f'No file with supplied name: {name}'
-        }
     content = None
     match action:
         case 'download':
+            file_list = S3.list_files(kind=kind)
+            if idx not in file_list:
+                return {
+                    'status': f'No item for download named: {idx}'
+                }
             url = S3.client.generate_presigned_url('get_object', Params={
-                'Bucket': S3.space_name, 'Key': full_s3_key(name, kind)}, ExpiresIn=60)
+                'Bucket': S3.space_name, 'Key': full_s3_key(idx, kind)}, ExpiresIn=60)
             content = url
         case 'delete':
-            delete_item_total(name, kind)
+            count = delete_item_total(idx, 'Jobs')
+            if not count:
+                return {
+                    'status': f'No item to delete named: {idx}'
+                }
     return {
         'status': 'ok',
         'content': content
@@ -114,13 +110,13 @@ async def manage_files(request: Request):
 
 
 @app.post('/all_items')
-async def manage_files(request: Request):
+async def get_all_items(request: Request):
     to_do = await request.json()
     kind = to_do['kind']
     if kind == 'all':
-        content = {v: DB.all_items(item=to_do[v]) for v in DB.FIELDS}
+        content = {v: DB.all_items(kind=to_do[v]) for v in DB.FIELDS}
     else:
-        content = DB.all_items(item=kind)
+        content = DB.all_items(kind=kind)
     return {
         'status': 'ok',
         'content': content
@@ -159,17 +155,20 @@ async def manage_users(request: Request):
 
 
 @app.post('/replay')
-async def manage_files(request: Request):
+async def replay(request: Request):
     to_do = await request.json()
-    game = S3.load(to_do['name'], 'Games')
-    if game:
+    idx = to_do['name']
+    kind = to_do['kind']
+    if idx in S3.list_files(kind):
+        url = S3.client.generate_presigned_url('get_object', Params={
+            'Bucket': S3.space_name, 'Key': full_s3_key(idx, kind)}, ExpiresIn=300)
         return {
             'status': 'ok',
-            'content': game
+            'content': url
         }
     else:
         return {
-            'status': f'Game with name {to_do["name"]} is not in Storage'
+            'status': f'Item with name {idx} is not in Storage'
         }
 
 
@@ -181,27 +180,13 @@ async def slow_job(request: Request):
     new = to_do['new']
     if mode == 'train' and new and agent_idx in DB.all_items('Agents'):
         return {'status': f'Agent {agent_idx} already exists, choose another name'}
-    idx = to_do['idx']
     name = to_do['name']
-    to_do['func'] = SLOW_TASKS[mode]
-    try:
-        if name not in RQ:
-            RQ[name] = {
-                'q': Queue(ame=name, connection=REDIS.conn),
-                'fail': FailedJobRegistry(name=name, connection=REDIS.conn),
-                'worker': Worker(queues=[name], name=name, connection=REDIS.conn)
-            }
-            RQ[name]['worker'].work()
-        job = RQ[name]['q'].enqueue(slow_task, to_do, job_id=idx, timeout=-1)
-        DB.add_array_item(name, idx, 'Jobs')
-        return {
-            'status': 'ok',
-            'content': job.id
-        }
-    except Exception as ex:
-        return {
-            'status': f'Unable to place job in Queue: {str(ex)}'
-        }
+    user = DB.find_user(name)
+    DB.add_array_item(name, to_do, 'Jobs')
+    return {
+        'status': 'ok',
+        'content': len(user['Jobs'])
+    }
 
 
 if __name__ == '__main__':

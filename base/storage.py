@@ -5,21 +5,16 @@ from .start import *
 
 class Storage:
 
-    def __init__(self, credentials=None, space='robot-2048'):
-        if credentials is not None:
-            qwargs = {
-                'service_name': 's3',
-                'endpoint_url': f'https://{credentials["region"]}.digitaloceanspaces.com',
-                'region_name': credentials['region'],
-                'aws_access_key_id': credentials['access_key'],
-                'aws_secret_access_key': credentials['secret_key']
-            }
-            self.engine = boto3.resource(**qwargs)
-            self.client = boto3.client(**qwargs)
-        else:
-            self.engine = None
-            self.client = None
-
+    def __init__(self, credentials: dict, space='robot-2048'):
+        qwargs = {
+            'service_name': 's3',
+            'endpoint_url': f'https://{credentials["region"]}.digitaloceanspaces.com',
+            'region_name': credentials['region'],
+            'aws_access_key_id': credentials['access_key'],
+            'aws_secret_access_key': credentials['secret_key']
+        }
+        self.engine = boto3.resource(**qwargs)
+        self.client = boto3.client(**qwargs)
         self.space = self.engine.Bucket(space)
         self.space_name = space
 

@@ -29,38 +29,37 @@ class Mongo:
             'pwd': pwd,
             'status': status,
             'Agents': [
-                {
-                    'idx': 'A',
-                    'n': 4,
-                    'alpha': 0.2,
-                    'decay': 0.9,
-                    'step': 2000,
-                    'min_alpha': 0.01
-                }
+                # {
+                #     'idx': 'A',
+                #     'n': 4,
+                #     'alpha': 0.2,
+                #     'decay': 0.9,
+                #     'step': 2000,
+                #     'min_alpha': 0.01
+                # }
             ],
             'Games': [
-                {
-                    'idx': 'Best_of_A',
-                    'initial': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
-                    'moves': [0, 1, 2, 3],
-                    'tiles': [[0, 3, 2], [3, 0, 1], [2, 3, 1], [2, 1, 1]]
-                }
+                # {
+                #     'idx': 'Best_of_A',
+                #     'initial': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
+                #     'moves': [0, 1, 2, 3],
+                #     'tiles': [[0, 3, 2], [3, 0, 1], [2, 3, 1], [2, 1, 1]]
+                # }
             ],
             'Jobs': [
-                {
-                    'idx': 1,
-                    'status': 2
-                },
-                {
-                    'idx': 2,
-                    'status': 3
-                },
-                {
-                    'idx': 3,
-                    'status': 5
-                }
+                # {
+                #     'idx': 1,
+                #     'status': 2
+                # },
+                # {
+                #     'idx': 2,
+                #     'status': 3
+                # },
+                # {
+                #     'idx': 3,
+                #     'status': 5
+                # }
             ],
-            'current_job': None,
             'logs': [f'Hello {name}! Click Help if unsure what this is about']
         }
         self.users.insert_one(user)
@@ -79,7 +78,7 @@ class Mongo:
         return [user['name'] for user in self.users.find({'status': 'admin'})]
 
     def delete_array_item(self, idx: str, kind: str):
-        self.users.update_one({}, {'$pull': {kind: {'idx': idx}}})
+        return self.users.update_one({}, {'$pull': {kind: {'idx': idx}}}).modified_count
 
     def add_array_item(self, name: str, item: dict, kind: str):
         if item['idx'] in self.all_items(kind):
