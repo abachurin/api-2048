@@ -15,12 +15,14 @@ if LOCAL:
 else:
     s3_credentials = {
         'region': os.getenv('S3_REGION', None),
+        'space': os.getenv('S3_SPACE', 'robot-2048'),
         'access_key': os.getenv('S3_ACCESS_KEY', None),
         'secret_key': os.getenv('S3_SECRET_KEY', None)
     }
     mongo_credentials = {
         'user': os.getenv('MG_USER', None),
-        'pwd': os.getenv('MG_PWD', None)
+        'pwd': os.getenv('MG_PWD', None),
+        'db': os.getenv('MG_DB', 'robot-2048'),
     }
 
 

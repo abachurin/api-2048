@@ -9,9 +9,9 @@ class Mongo:
     def __init__(self, credentials: dict):
         self.cluster = f'mongodb+srv://{credentials["user"]}:{credentials["pwd"]}@instance-0' \
                        f'.55byx.mongodb.net/?retryWrites=true&w=majority'
-        self.client = MongoClient(self.cluster)
-        self.db = self.client['robot-2048']
-        self.users = self.db['users']
+        client = MongoClient(self.cluster)
+        db = client[credentials['db']]
+        self.users = db['users']
         self.array_names = ('Agents', 'Games', 'Jobs')
 
     def find_user(self, name: str):

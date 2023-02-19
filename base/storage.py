@@ -5,7 +5,7 @@ from .start import *
 
 class Storage:
 
-    def __init__(self, credentials: dict, space='robot-2048'):
+    def __init__(self, credentials: dict):
         qwargs = {
             'service_name': 's3',
             'endpoint_url': f'https://{credentials["region"]}.digitaloceanspaces.com',
@@ -15,8 +15,8 @@ class Storage:
         }
         self.engine = boto3.resource(**qwargs)
         self.client = boto3.client(**qwargs)
-        self.space = self.engine.Bucket(space)
-        self.space_name = space
+        self.space_name = credentials['space']
+        self.space = self.engine.Bucket(self.space_name)
 
     def list_files(self, kind=None):
         files = [o.key for o in self.space.objects.all()]
