@@ -18,56 +18,31 @@ class Storage:
         self.space_name = credentials['space']
         self.space = self.engine.Bucket(self.space_name)
 
-    def list_files(self, kind=None):
-        files = [o.key for o in self.space.objects.all()]
-        if kind:
-            return [core_name(f) for f in files if kind_name(f) == kind]
-        else:
-            return files
+    def list_files(self):
+        return [o.key for o in self.space.objects.all()]
 
-    def delete(self, name, kind=None):
-        name = full_s3_key(name, kind)
-        if name in self.list_files():
-            self.engine.Object(self.space_name, name).delete()
+    def delete(self, name):
+        key = full_key(name)
+        if key in self.list_files():
+            self.engine.Object(self.space_name, key).delete()
 
-    def copy(self, src, dst):
-        self.space.copy({'Bucket': self.space_name, 'Key': src}, dst)
+    def save_file(self, local, key):
+        self.space.upload_file(local, key)
 
-    def save_file(self, file, name, kind=None):
-        self.space.upload_file(file, full_s3_key(name, kind))
-
-    def save(self, data, name, folder=None):
-        temp, ext = temp_local(name)
+    def save(self, data, key):
+        temp = temp_local()
         with open(temp, 'w') as f:
-            match ext:
-                case 'json':
-                    json.dump(data, f)
-                case 'txt':
-                    f.write(data)
-                case 'pkl':
-                    pickle.dump(data, f, -1)
-                case _:
-                    return
-        self.save_file(temp, name, folder)
+            pickle.dump(data, f, -1)
+        self.save_file(temp, key)
         os.remove(temp)
 
-    def load(self, name, folder=None):
-        full = full_s3_key(name, folder)
-        if full not in self.list_files():
+    def load(self, name):
+        key = full_key(name)
+        if key not in self.list_files():
             return
-        temp, ext = temp_local(name)
-        self.space.download_file(full, temp)
-        match ext:
-            case 'json':
-                with open(temp, 'r', encoding='utf-8') as f:
-                    result = json.load(f)
-            case 'txt':
-                with open(temp, 'r') as f:
-                    result = f.read()
-            case 'pkl':
-                with open(temp, 'rb') as f:
-                    result = pickle.load(f)
-            case _:
-                result = None
+        temp = temp_local()
+        self.space.download_file(key, temp)
+        with open(temp, 'rb') as f:
+            result = pickle.load(f)
         os.remove(temp)
         return result

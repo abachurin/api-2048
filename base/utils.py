@@ -35,8 +35,8 @@ DB = Mongo(mongo_credentials)
 
 def delete_item_total(idx: str, kind: str):
     count = DB.delete_array_item(idx, kind)
-    if kind != 'Jobs':
-        S3.delete(idx, kind)
+    if kind == 'Agents':
+        S3.delete(idx)
     return count
 
 

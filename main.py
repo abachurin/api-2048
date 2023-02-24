@@ -1,6 +1,27 @@
+import threading
+import time
+
 from fastapi import FastAPI, Request
 import uvicorn
+from threading import Thread
 from base.utils import *
+
+ACTIVE_USERS = {}
+
+
+def set_inactive():
+    while True:
+        to_delete = []
+        for name in ACTIVE_USERS:
+            ACTIVE_USERS[name] += 1
+            if ACTIVE_USERS[name] == 2:
+                to_delete.append(name)
+        for name in to_delete:
+            ACTIVE_USERS.pop(name, None)
+        time.sleep(15)
+
+
+threading.Thread(target=set_inactive, daemon=True).start()
 
 app = FastAPI()
 
@@ -15,18 +36,17 @@ async def manage_users(request: Request):
     to_do = await request.json()
     name, pwd, action = to_do['name'], to_do['pwd'], to_do['action']
     user = DB.find_user(name)
+    status = 'ok'
     content = None
     match action:
         case 'submit':
             user = DB.find_user(name)
             if user is None:
-                return {
-                    'status': f"User {name} doesn't exist. Create with 'New' button"
-                }
-            if user['pwd'] != pwd:
-                return {
-                    'status': f'Wrong password!'
-                }
+                status = f"User {name} doesn't exist. Create with 'New' button"
+            elif user['pwd'] != pwd:
+                status = f'Wrong password for {name}!'
+            elif name in ACTIVE_USERS:
+                status = f'{name} is already logged in'
             else:
                 user['logs'] = DB.adjust_logs(user)
                 content = {
@@ -36,12 +56,10 @@ async def manage_users(request: Request):
         case 'new':
             user = DB.find_user(name)
             if user:
-                return {
-                    'status': f'User {name} already exists'
-                }
+                status = f'User {name} already exists'
             else:
-                status = 'admin' if name == 'Loki' else 'guest'
-                user = DB.new_user(name, pwd, status)
+                user_status = 'admin' if name == 'Loki' else 'guest'
+                user = DB.new_user(name, pwd, user_status)
                 content = {
                     'profile': user,
                     'max_logs': DB.max_logs
@@ -49,7 +67,7 @@ async def manage_users(request: Request):
         case 'delete':
             delete_user_total(user)
     return {
-        'status': 'ok',
+        'status': status,
         'content': content
     }
 
@@ -58,6 +76,7 @@ async def manage_users(request: Request):
 async def update(request: Request):
     to_do = await request.json()
     name = to_do['name']
+    ACTIVE_USERS[name] = 0
     log_break = to_do['log_break']
     user = DB.find_user(name)
     if user is None:
@@ -87,24 +106,26 @@ async def manage_files(request: Request):
     idx = to_do['idx']
     action = to_do['action']
     content = None
+    status = 'ok'
     match action:
         case 'download':
-            file_list = S3.list_files(kind=kind)
-            if idx not in file_list:
-                return {
-                    'status': f'No item for download named: {idx}'
-                }
-            url = S3.client.generate_presigned_url('get_object', Params={
-                'Bucket': S3.space_name, 'Key': full_s3_key(idx, kind)}, ExpiresIn=60)
-            content = url
+            if kind == 'Games':
+                content = DB.get_game(idx)
+                if content is None:
+                    status = f'No item for download named: {idx}'
+            else:
+                file_list = S3.list_files()
+                if idx not in file_list:
+                    status = f'No item for download named: {idx}'
+                else:
+                    content = S3.client.generate_presigned_url('get_object', Params={
+                        'Bucket': S3.space_name, 'Key': full_key(idx)}, ExpiresIn=60)
         case 'delete':
-            count = delete_item_total(idx, 'Jobs')
+            count = delete_item_total(idx, kind)
             if not count:
-                return {
-                    'status': f'No item to delete named: {idx}'
-                }
+                status = f'No item to delete named: {idx}'
     return {
-        'status': 'ok',
+        'status': status,
         'content': content
     }
 
@@ -117,6 +138,7 @@ async def get_all_items(request: Request):
         content = {v: DB.all_items(kind=to_do[v]) for v in DB.FIELDS}
     else:
         content = DB.all_items(kind=kind)
+    pprint(content)
     return {
         'status': 'ok',
         'content': content
@@ -157,35 +179,62 @@ async def manage_users(request: Request):
 @app.post('/replay')
 async def replay(request: Request):
     to_do = await request.json()
-    idx = to_do['name']
-    kind = to_do['kind']
-    if idx in S3.list_files(kind):
-        url = S3.client.generate_presigned_url('get_object', Params={
-            'Bucket': S3.space_name, 'Key': full_s3_key(idx, kind)}, ExpiresIn=300)
-        return {
-            'status': 'ok',
-            'content': url
-        }
-    else:
-        return {
-            'status': f'Item with name {idx} is not in Storage'
-        }
+    idx = to_do['idx']
+    status = 'ok'
+    content = DB.get_game(idx)
+    if content is None:
+        status = f'Item with name {idx} is not in Storage'
+    return {
+        'status': status,
+        'content': content
+    }
+
+
+@app.post('/watch')
+async def replay(request: Request):
+    to_do = await request.json()
+    name = to_do['name']
+    item = {
+        'idx': to_do['idx'],
+        'initial': to_do['initial']
+    }
+    DB.update_user(name, {'watch': item})
+    return {
+        'status': 'ok',
+        'content': None
+    }
 
 
 @app.post('/slow')
 async def slow_job(request: Request):
     to_do = await request.json()
     mode = to_do['mode']
-    agent_idx = to_do['agent']['idx']
-    new = to_do['new']
-    if mode == 'train' and new and agent_idx in DB.all_items('Agents'):
-        return {'status': f'Agent {agent_idx} already exists, choose another name'}
+    agent_idx = to_do['agent']
+    new = to_do['is_new']
     name = to_do['name']
+    if mode == 'train':
+        if new and (agent_idx in DB.all_items('Agents')):
+            return {
+                'status': f'Agent {agent_idx} already exists, choose another name'
+            }
+        DB.replace_agent(name, to_do)
     user = DB.find_user(name)
     DB.add_array_item(name, to_do, 'Jobs')
     return {
         'status': 'ok',
         'content': len(user['Jobs'])
+    }
+
+
+@app.post('/job_status')
+async def slow_job(request: Request):
+    to_do = await request.json()
+    idx = to_do['idx']
+    status = to_do['status']
+    DB.set_job_status(idx, status)
+    return {
+        'status': 'ok',
+        'content': None
     }
 
 
