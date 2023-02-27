@@ -102,25 +102,21 @@ async def update(request: Request):
 @app.post('/file')
 async def manage_files(request: Request):
     to_do = await request.json()
-    kind = to_do['kind']
     idx = to_do['idx']
     action = to_do['action']
     content = None
     status = 'ok'
     match action:
-        case 'download':
-            if kind == 'Games':
-                content = DB.get_game(idx)
-                if content is None:
-                    status = f'No item for download named: {idx}'
+        case 'weights':
+            key = full_key(idx)
+            file_list = S3.list_files()
+            if key not in file_list:
+                status = f'No weights for agent {idx} in storage'
             else:
-                file_list = S3.list_files()
-                if idx not in file_list:
-                    status = f'No item for download named: {idx}'
-                else:
-                    content = S3.client.generate_presigned_url('get_object', Params={
-                        'Bucket': S3.space_name, 'Key': full_key(idx)}, ExpiresIn=60)
+                content = S3.client.generate_presigned_url('get_object', Params={
+                    'Bucket': S3.space_name, 'Key': key}, ExpiresIn=60)
         case 'delete':
+            kind = to_do['kind']
             count = delete_item_total(idx, kind)
             if not count:
                 status = f'No item to delete named: {idx}'
@@ -192,15 +188,26 @@ async def replay(request: Request):
 @app.post('/watch')
 async def replay(request: Request):
     to_do = await request.json()
-    name = to_do['name']
-    item = {
-        'idx': to_do['idx'],
-        'initial': to_do['initial']
-    }
-    DB.update_user(name, {'watch': item})
+    status = 'ok'
+    content = None
+    idx = to_do['idx']
+    key = full_key(idx)
+    file_list = S3.list_files()
+    if key not in file_list:
+        status = f'No weights for agent {idx} in storage'
+    else:
+        agent = DB.get_agent(idx, 'Agents')
+        if agent is None:
+            status = f'Looks like Agent {idx} was deleted'
+        else:
+            content = {
+                'url': S3.client.generate_presigned_url('get_object', Params={
+                    'Bucket': S3.space_name, 'Key': key}, ExpiresIn=60),
+                'signature': agent['weight_signature']
+            }
     return {
-        'status': 'ok',
-        'content': None
+        'status': status,
+        'content': content
     }
 
 

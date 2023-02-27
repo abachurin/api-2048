@@ -140,3 +140,6 @@ class Mongo:
 
     def get_game(self, idx):
         return self.get_item(idx, 'Games')
+
+    def get_agent(self, idx):
+        return self.get_item(idx, 'Agents')
