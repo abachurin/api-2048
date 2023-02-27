@@ -3,18 +3,53 @@ from pymongo import MongoClient
 
 class Mongo:
 
-    max_logs = 2000
+    max_logs = 500
     FIELDS = ('Agents', 'Games', 'Jobs')
+    user_pattern = {
+            'name': 'user name',
+            'pwd': 'user password',
+            'status': 'user status',
+            'Agents': [],
+            'Games': [],
+            'Jobs': [],
+            'logs': [f'Hello UserName! Click Help if unsure what this is about']
+        }
     agent_pattern = {
-        'idx': 'some name',
+        'idx': 'agent name',
+        'creator': 'user name',
         'n': 0,
+        'weight_signature': None,
         'alpha': 0.0,
         'decay': 0.0,
-        'step': 2000,
+        'step': 0,
         'min_alpha': 0.0,
         'best_score': 0,
+        'max_tile': 1,
+        'train_eps': 0,
+        'train_history': [],
+        'collect_step': 100
+    }
+    game_pattern = {
+        'idx': 'game name',
+        'player': 'agent or user',
+        'initial': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
+        'current': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
+        'score': 0,
+        'num_of_moves': 0,
         'max_tile': 0,
-        'train_history': []
+        'moves': [0, 1, 2, 3],
+        'tiles': [[0, 3, 2], [3, 0, 1], [2, 3, 1], [2, 1, 1]]
+    }
+    job_pattern = {
+        'idx': 'job id',
+        'status': 1,
+        'creation_time': None,
+        'launch_time': None,
+        'name': 'user name',
+        'mode': 'train or test',
+        'new': True,
+        'agent': 'agent name'
+        # train or test params here
     }
 
     def __init__(self, credentials: dict):
@@ -26,54 +61,23 @@ class Mongo:
         self.array_names = ('Agents', 'Games', 'Jobs', 'watch')
 
     def find_user(self, name: str):
-        user = self.users.find_one({'name': name})
-        if user is not None:
-            del user['_id']
-        return user
+        return self.users.find_one({'name': name}, {'_id': 0})
+
+    def get_item(self, idx: str, kind: str):
+        try:
+            return self.users.find_one({f'{kind}.idx': idx}, {f'{kind}.$': 1})[kind][0]
+        except TypeError:
+            return None
 
     def delete_user(self, name: str):
         self.users.delete_one({'name': name})
 
     def new_user(self, name: str, pwd: str, status: str):
         user = {
+            **self.user_pattern,
             'name': name,
             'pwd': pwd,
             'status': status,
-            'Agents': [
-                {
-                    'idx': 'A',
-                    'n': 4,
-                    'alpha': 0.2,
-                    'decay': 0.9,
-                    'step': 2000,
-                    'min_alpha': 0.01,
-                    'best_score': 0,
-                    'max_tile': 0,
-                    'train_history': []
-                }
-            ],
-            'Games': [
-                # {
-                #     'idx': 'Best_of_A',
-                #     'final_score': 0,
-                #     'max_tile': 0
-                #     'initial': [[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 0]],
-                #     'moves': [0, 1, 2, 3],
-                #     'tiles': [[0, 3, 2], [3, 0, 1], [2, 3, 1], [2, 1, 1]],
-                # }
-            ],
-            'Jobs': [
-                # {
-                #             'idx': idx,
-                #             'status': 'created',
-                #             'launch': 'sent to job queue',
-                #             'name': name,
-                #             'mode': mode,
-                #             'new': True/False,
-                #             'agent': {'idx': agent_name, **params}
-                # }
-            ],
-            'watch': None,      # 'idx': agent idx,
             'logs': [f'Hello {name}! Click Help if unsure what this is about']
         }
         self.users.insert_one(user)
@@ -89,7 +93,7 @@ class Mongo:
         return self.users.distinct(kind)
 
     def admin_list(self):
-        return [user['name'] for user in self.users.find({'status': 'admin'})]
+        return self.users.distinct('name', {'status': 'admin'})
 
     def delete_array_item(self, idx: str, kind: str):
         return self.users.update_one({}, {'$pull': {kind: {'idx': idx}}}).modified_count
@@ -105,8 +109,9 @@ class Mongo:
         if params['is_new']:
             current = self.agent_pattern.copy()
             current['idx'] = idx
+            current['creator'] = name
         else:
-            current = self.users.find_one({'Agents.idx': idx})['Agents'][0]
+            current = self.get_item(idx, 'Agents')
         for key in current:
             if key != 'idx' and key in params:
                 current[key] = params[key]
@@ -128,17 +133,10 @@ class Mongo:
 
     # Job status: 1 = work, 0 = stop, -1 = kill
     def set_job_status(self, idx: str, status: str):
-        if status == 'kill':
+        if status == -1:
             self.delete_array_item(idx, 'Jobs')
         else:
             self.users.update_one({'Jobs.idx': idx}, {'$set': {'Jobs.$.status': status}})
 
-    def get_job_status(self, idx: str):
-        try:
-            return self.users.find_one({'Jobs.idx': idx}, {'Jobs.$': 1})['Jobs'][0]['status']
-        except TypeError:
-            return 'kill'
-
     def get_game(self, idx):
-        arr = self.users.find_one({'Games.idx': idx}, {'Games.$': 1})['Games']
-        return arr[0] if arr else None
+        return self.get_item(idx, 'Games')

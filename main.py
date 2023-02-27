@@ -18,7 +18,7 @@ def set_inactive():
                 to_delete.append(name)
         for name in to_delete:
             ACTIVE_USERS.pop(name, None)
-        time.sleep(15)
+        time.sleep(8)
 
 
 threading.Thread(target=set_inactive, daemon=True).start()
@@ -138,7 +138,6 @@ async def get_all_items(request: Request):
         content = {v: DB.all_items(kind=to_do[v]) for v in DB.FIELDS}
     else:
         content = DB.all_items(kind=kind)
-    pprint(content)
     return {
         'status': 'ok',
         'content': content
