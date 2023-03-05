@@ -46,10 +46,9 @@ class Mongo:
         'creation_time': None,
         'launch_time': None,
         'name': 'user name',
-        'mode': 'train or test',
-        'new': True,
+        'mode': 'train, test or watch',
         'agent': 'agent name'
-        # train or test params here
+        # mode-specific params here
     }
 
     def __init__(self, credentials: dict):
@@ -69,8 +68,17 @@ class Mongo:
         except TypeError:
             return None
 
+    def get_game(self, idx):
+        return self.get_item(idx, 'Games')
+
+    def get_agent(self, idx):
+        return self.get_item(idx, 'Agents')
+
     def delete_user(self, name: str):
         self.users.delete_one({'name': name})
+
+    def delete_watch_user(self, idx: str):
+        self.users.delete_one({'Jobs.idx': idx})
 
     def new_user(self, name: str, pwd: str, status: str):
         user = {
@@ -96,7 +104,7 @@ class Mongo:
         return self.users.distinct('name', {'status': 'admin'})
 
     def delete_array_item(self, idx: str, kind: str):
-        return self.users.update_one({}, {'$pull': {kind: {'idx': idx}}}).modified_count
+        return self.users.update_one({f'{kind}.idx': idx}, {'$pull': {kind: {'idx': idx}}}).modified_count
 
     def add_array_item(self, name: str, item: dict, kind: str):
         if item['idx'] in self.all_items(kind):
@@ -138,8 +146,16 @@ class Mongo:
         else:
             self.users.update_one({'Jobs.idx': idx}, {'$set': {'Jobs.$.status': status}})
 
-    def get_game(self, idx):
-        return self.get_item(idx, 'Games')
+    def check_job_status(self, idx: str):
+        try:
+            return self.get_item(idx, 'Jobs')['status']
+        except TypeError:
+            return -1
 
-    def get_agent(self, idx):
-        return self.get_item(idx, 'Agents')
+    def rerun_watch_job(self, idx: str, row: dict):
+        return self.users.update_one({'Jobs.idx': idx}, {'$set': {
+            'Jobs.$.new_game': 1,
+            'Jobs.$.row': row,
+            'Jobs.$.score': 0,
+            'Jobs.$.odo': 0
+        }}).modified_count

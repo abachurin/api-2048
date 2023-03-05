@@ -32,7 +32,7 @@ async def root():
 
 
 @app.post('/user')
-async def manage_users(request: Request):
+async def user(request: Request):
     to_do = await request.json()
     name, pwd, action = to_do['name'], to_do['pwd'], to_do['action']
     user = DB.find_user(name)
@@ -100,7 +100,7 @@ async def update(request: Request):
 
 
 @app.post('/file')
-async def manage_files(request: Request):
+async def file(request: Request):
     to_do = await request.json()
     idx = to_do['idx']
     action = to_do['action']
@@ -127,7 +127,7 @@ async def manage_files(request: Request):
 
 
 @app.post('/all_items')
-async def get_all_items(request: Request):
+async def all_items(request: Request):
     to_do = await request.json()
     kind = to_do['kind']
     if kind == 'all':
@@ -141,7 +141,7 @@ async def get_all_items(request: Request):
 
 
 @app.post('/admin')
-async def manage_users(request: Request):
+async def admin(request: Request):
     to_do = await request.json()
     job = to_do['job']
     if 'name' in to_do:
@@ -185,55 +185,31 @@ async def replay(request: Request):
     }
 
 
-@app.post('/watch')
-async def replay(request: Request):
-    to_do = await request.json()
-    status = 'ok'
-    content = None
-    idx = to_do['idx']
-    key = full_key(idx)
-    file_list = S3.list_files()
-    if key not in file_list:
-        status = f'No weights for agent {idx} in storage'
-    else:
-        agent = DB.get_agent(idx, 'Agents')
-        if agent is None:
-            status = f'Looks like Agent {idx} was deleted'
-        else:
-            content = {
-                'url': S3.client.generate_presigned_url('get_object', Params={
-                    'Bucket': S3.space_name, 'Key': key}, ExpiresIn=60),
-                'signature': agent['weight_signature']
-            }
-    return {
-        'status': status,
-        'content': content
-    }
-
-
 @app.post('/slow')
-async def slow_job(request: Request):
+async def slow(request: Request):
     to_do = await request.json()
     mode = to_do['mode']
     agent_idx = to_do['agent']
-    new = to_do['is_new']
     name = to_do['name']
-    if mode == 'train':
-        if new and (agent_idx in DB.all_items('Agents')):
-            return {
-                'status': f'Agent {agent_idx} already exists, choose another name'
-            }
-        DB.replace_agent(name, to_do)
-    user = DB.find_user(name)
+    match mode:
+        case 'train':
+            if to_do['is_new'] and (agent_idx in DB.all_items('Agents')):
+                return {
+                    'status': f'Agent {agent_idx} already exists, choose another name'
+                }
+            DB.replace_agent(name, to_do)
+        case 'watch':
+            DB.delete_watch_user(to_do['current'])
+            DB.new_user(name, None, 'tmp')
     DB.add_array_item(name, to_do, 'Jobs')
     return {
         'status': 'ok',
-        'content': len(user['Jobs'])
+        'content': None
     }
 
 
 @app.post('/job_status')
-async def slow_job(request: Request):
+async def job_status(request: Request):
     to_do = await request.json()
     idx = to_do['idx']
     status = to_do['status']
@@ -241,6 +217,38 @@ async def slow_job(request: Request):
     return {
         'status': 'ok',
         'content': None
+    }
+
+
+@app.post('/watch')
+async def watch(request: Request):
+    to_do = await request.json()
+    idx = to_do['idx']
+    mode = to_do['mode']
+    status = 'ok'
+    content = None
+    match mode:
+        case 'check_agent_load':
+            content = DB.check_job_status(idx)
+            if content in (1, 2):
+                status = 'not loaded yet'
+        case 'get_moves':
+            job = DB.get_item(idx, 'Jobs')
+            if job is None:
+                status = f'Looks like <{idx}> process terminated'
+            else:
+                i = to_do['break']
+                content = {
+                    'moves': job['moves'][i:],
+                    'tiles': job['tiles'][i:],
+                }
+        case 'once_again':
+            count = DB.rerun_watch_job(idx, to_do['row'])
+            if not count:
+                status = f'<{idx}> process expired. Use "Watch Agent" button again'
+    return {
+        'status': status,
+        'content': content
     }
 
 
