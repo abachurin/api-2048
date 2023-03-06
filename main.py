@@ -58,8 +58,7 @@ async def user(request: Request):
             if user:
                 status = f'User {name} already exists'
             else:
-                user_status = 'admin' if name == 'Loki' else 'guest'
-                user = DB.new_user(name, pwd, user_status)
+                user = DB.new_user(name, pwd, 'guest')
                 content = {
                     'profile': user,
                     'max_logs': DB.max_logs

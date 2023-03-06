@@ -54,12 +54,10 @@ class Mongo:
     }
 
     def __init__(self, credentials: dict):
-        self.cluster = f'mongodb+srv://{credentials["user"]}:{credentials["pwd"]}@instance-0' \
-                       f'.55byx.mongodb.net/?retryWrites=true&w=majority'
+        self.cluster = f'mongodb+srv://{credentials["user"]}:{credentials["pwd"]}@{credentials["location"]}'
         client = MongoClient(self.cluster)
         db = client[credentials['db']]
         self.users = db['users']
-        self.array_names = ('Agents', 'Games', 'Jobs', 'watch')
 
     def find_user(self, name: str):
         return self.users.find_one({'name': name}, {'_id': 0})
@@ -99,7 +97,7 @@ class Mongo:
         self.users.update_one({'name': name}, {'$set': fields})
 
     def all_items(self, kind: str):
-        if kind in self.array_names:
+        if kind in self.ARRAYS:
             kind += '.idx'
         return self.users.distinct(kind)
 

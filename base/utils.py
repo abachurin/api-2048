@@ -4,7 +4,7 @@ from .mongo import *
 working_directory = os.path.dirname(os.path.realpath(__file__))
 with open(os.path.join(working_directory, 'config.json'), 'r') as f:
     CONF = json.load(f)
-LOCAL = os.environ.get('S3_URL', 'local') == 'local'
+LOCAL = os.environ.get('AT_HOME', 'local') == 'local'
 
 if LOCAL:
     with open(CONF['s3_credentials'], 'r') as f:
@@ -21,6 +21,7 @@ else:
     mongo_credentials = {
         'user': os.getenv('MG_USER', None),
         'pwd': os.getenv('MG_PWD', None),
+        'location': os.getenv('MG_LOCATION', None),
         'db': os.getenv('MG_DB', 'robot-2048'),
     }
 
