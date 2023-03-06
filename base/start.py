@@ -18,3 +18,6 @@ def temp_local():
 
 def time_now():
     return str(datetime.now())[:19]
+
+
+EXTRA_AGENTS = ['Random Moves', 'Best Score']

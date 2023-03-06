@@ -200,6 +200,12 @@ async def slow(request: Request):
                 }
             DB.replace_agent(name, to_do)
         case 'watch':
+            if (agent_idx not in EXTRA_AGENTS) and \
+                    (agent_idx not in DB.all_items('Agents')) or \
+                    (agent_idx not in S3.list_files()):
+                return {
+                    'status': f'Agent {agent_idx} does not exist or weights were not saved yet'
+                }
             DB.delete_watch_user(to_do['current'])
             DB.new_user(name, None, 'tmp')
     DB.add_array_item(name, to_do, 'Jobs')
