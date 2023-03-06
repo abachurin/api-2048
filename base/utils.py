@@ -1,4 +1,3 @@
-from .start import *
 from .storage import *
 from .mongo import *
 
@@ -28,9 +27,6 @@ else:
 
 S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
-
-# DB.new_user('xxx', 'yyy', 'zzz')
-# DB.new_user('yyy', 'yyy', 'zzz')
 
 
 def delete_item_total(idx: str, kind: str):
