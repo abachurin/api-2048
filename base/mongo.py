@@ -1,11 +1,13 @@
 from pymongo import MongoClient
+from .start import *
 
 
 class Mongo:
 
     max_logs = 500
-    FIELDS = ('Agents', 'Games', 'Jobs')
+    ARRAYS = ('Agents', 'Games', 'Jobs')
     user_pattern = {
+            'time': 'registration datetime',
             'name': 'user name',
             'pwd': 'user password',
             'status': 'user status',
@@ -83,6 +85,7 @@ class Mongo:
     def new_user(self, name: str, pwd: str, status: str):
         user = {
             **self.user_pattern,
+            'time': time_now(),
             'name': name,
             'pwd': pwd,
             'status': status,

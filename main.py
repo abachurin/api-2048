@@ -131,7 +131,7 @@ async def all_items(request: Request):
     to_do = await request.json()
     kind = to_do['kind']
     if kind == 'all':
-        content = {v: DB.all_items(kind=to_do[v]) for v in DB.FIELDS}
+        content = {v: DB.all_items(kind=to_do[v]) for v in DB.ARRAYS}
     else:
         content = DB.all_items(kind=kind)
     return {
@@ -144,19 +144,21 @@ async def all_items(request: Request):
 async def admin(request: Request):
     to_do = await request.json()
     job = to_do['job']
-    if 'name' in to_do:
-        user = DB.find_user(to_do['name'])
-        if not user:
-            return {
-                'status': f'User {to_do["name"]} does not exist'
-            }
+    user = DB.find_user(to_do['name'])
+    if not user:
+        return {
+            'status': f'User {to_do["name"]} does not exist'
+        }
     content = None
     match job:
-        case 'status_list':
-            status_list = DB.all_items('status')
+        case 'user_description':
+            status_list = ['guest', 'admin']
+            description = {kind: [v['idx'] for v in user[kind]] for kind in DB.ARRAYS}
+            description['time'] = user.get('time', time_now())
             content = {
                 'list': status_list,
-                'status': user['status']
+                'status': user['status'],
+                'description': description
             }
         case 'status':
             new_status = to_do['status']

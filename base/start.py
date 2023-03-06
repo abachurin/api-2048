@@ -14,3 +14,7 @@ def time_suffix():
 
 def temp_local():
     return f'tmp{time_suffix()}.pkl'
+
+
+def time_now():
+    return str(datetime.now())[:19]
