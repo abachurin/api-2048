@@ -202,7 +202,7 @@ async def slow(request: Request):
         case 'watch':
             if (agent_idx not in EXTRA_AGENTS) and \
                     (agent_idx not in DB.all_items('Agents')) or \
-                    (agent_idx not in S3.list_files()):
+                    (full_key(agent_idx) not in S3.list_files()):
                 return {
                     'status': f'Agent {agent_idx} does not exist or weights were not saved yet'
                 }

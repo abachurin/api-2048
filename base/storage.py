@@ -25,24 +25,3 @@ class Storage:
         key = full_key(name)
         if key in self.list_files():
             self.engine.Object(self.space_name, key).delete()
-
-    def save_file(self, local, key):
-        self.space.upload_file(local, key)
-
-    def save(self, data, key):
-        temp = temp_local()
-        with open(temp, 'w') as f:
-            pickle.dump(data, f, -1)
-        self.save_file(temp, key)
-        os.remove(temp)
-
-    def load(self, name):
-        key = full_key(name)
-        if key not in self.list_files():
-            return
-        temp = temp_local()
-        self.space.download_file(key, temp)
-        with open(temp, 'rb') as f:
-            result = pickle.load(f)
-        os.remove(temp)
-        return result
