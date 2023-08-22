@@ -30,15 +30,16 @@ S3 = Storage(s3_credentials)
 DB = Mongo(mongo_credentials)
 
 
-def delete_item_total(idx: str, kind: str):
-    count = DB.delete_array_item(idx, kind)
-    if kind == 'Agents':
-        S3.delete(idx)
-    return count
+def delete_item_total(delete_item_request: ItemDeleteRequest):
+    DB.delete_item(delete_item_request)
+    if delete_item_request.kind == ItemType.AGENTS:
+        S3.delete(delete_item_request.name)
 
 
-def delete_user_total(user: dict):
-    for kind in ('Jobs', 'Agents', 'Games'):
-        for item in user[kind]:
-            delete_item_total(item, kind)
-    DB.delete_user(user['name'])
+def delete_user_total(name: str):
+    DB.jobs.delete_many({'user': name})
+    for agent_name in [v['name'] for v in DB.agents.find({'user': name})]:
+        S3.delete(agent_name)
+    DB.agents.delete_many({'user': name})
+    DB.games.delete_many({'user': name})
+    DB.users.delete_one({'name': name})

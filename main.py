@@ -1,12 +1,14 @@
 import threading
 import time
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+
 import uvicorn
-from threading import Thread
 from base.utils import *
 
 ACTIVE_USERS = {}
+RESTRICTED_USERNAMES = {"Login"}
 
 
 def set_inactive():
@@ -25,238 +27,183 @@ threading.Thread(target=set_inactive, daemon=True).start()
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get('/')
 async def root():
     return {'message': 'Robot-2048 backend, made with FastAPI, go to /docs to see all available endpoints'}
 
 
-@app.post('/user')
-async def user(request: Request):
-    to_do = await request.json()
-    name, pwd, action = to_do['name'], to_do['pwd'], to_do['action']
-    user = DB.find_user(name)
-    status = 'ok'
-    content = None
-    match action:
-        case 'submit':
-            user = DB.find_user(name)
-            if user is None:
-                status = f"User {name} doesn't exist. Create with 'New' button"
-            elif user['pwd'] != pwd:
-                status = f'Wrong password for {name}!'
-            elif name in ACTIVE_USERS:
-                status = f'{name} is already logged in'
-            else:
-                user['logs'] = DB.adjust_logs(user)
-                content = {
-                    'profile': user,
-                    'max_logs': DB.max_logs
-                }
-        case 'new':
-            user = DB.find_user(name)
-            if user:
-                status = f'User {name} already exists'
-            else:
-                user = DB.new_user(name, pwd, 'guest')
-                content = {
-                    'profile': user,
-                    'max_logs': DB.max_logs
-                }
-        case 'delete':
-            delete_user_total(user)
-    return {
-        'status': status,
-        'content': content
-    }
-
-
-@app.post('/update')
-async def update(request: Request):
-    to_do = await request.json()
-    name = to_do['name']
+@app.post('/users/login')
+async def users_login(login_data: UserLogin) -> UserLoginResponse:
+    name = login_data.name
+    pwd = login_data.pwd
+    if name in ACTIVE_USERS:
+        return UserLoginResponse(status=f'{name} is already logged in', content=None)
+    db_pwd = DB.get_pwd(name)
+    if db_pwd is None:
+        return UserLoginResponse(status=f'User {name} does not exist', content=None)
+    if db_pwd != pwd:
+        return UserLoginResponse(status=f'Wrong password for {name}!', content=None)
+    DB.reset_last_log(name)
+    db_user = DB.find_user(name)
+    user_frontend = restrict(UserCore, db_user)
     ACTIVE_USERS[name] = 0
-    log_break = to_do['log_break']
-    user = DB.find_user(name)
-    if user is None:
-        return {
-            'status': f"Looks like user {name} doesn't exist anymore"
-        }
-    logs = user['logs']
-    new_logs = user['logs'][log_break:] if len(logs) > log_break else []
-    if to_do['clear_logs']:
-        DB.update_user(name, {'logs': new_logs})
-    else:
-        DB.adjust_logs(user)
-    user.pop('logs')
-    return {
-        'status': 'ok',
-        'content': {
-            'profile': user,
-            'new_logs': new_logs
-        }
-    }
+    return UserLoginResponse(status='ok', content=user_frontend)
 
 
-@app.post('/file')
-async def file(request: Request):
-    to_do = await request.json()
-    idx = to_do['idx']
-    action = to_do['action']
-    content = None
-    status = 'ok'
-    match action:
-        case 'weights':
-            key = full_key(idx)
-            file_list = S3.list_files()
-            if key not in file_list:
-                status = f'No weights for agent {idx} in storage'
-            else:
-                content = S3.client.generate_presigned_url('get_object', Params={
-                    'Bucket': S3.space_name, 'Key': key}, ExpiresIn=60)
-        case 'delete':
-            kind = to_do['kind']
-            count = delete_item_total(idx, kind)
-            if not count:
-                status = f'No item to delete named: {idx}'
-    return {
-        'status': status,
-        'content': content
-    }
+@app.post('/users/register')
+async def users_register(login_data: UserLogin) -> UserLoginResponse:
+    name = login_data.name
+    pwd = login_data.pwd
+    db_pwd = DB.get_pwd(name)
+    if db_pwd is not None or name in RESTRICTED_USERNAMES:
+        return UserLoginResponse(status=f'User {name} already exists!', content=None)
+    new_user = DB.new_user(name, pwd)
+    user_frontend = restrict(UserCore, new_user)
+    return UserLoginResponse(status='ok', content=user_frontend)
 
 
-@app.post('/all_items')
-async def all_items(request: Request):
-    to_do = await request.json()
-    kind = to_do['kind']
-    if kind == 'all':
-        content = {v: DB.all_items(kind=to_do[v]) for v in DB.ARRAYS}
-    else:
-        content = DB.all_items(kind=kind)
-    return {
-        'status': 'ok',
-        'content': content
-    }
+@app.delete('/users/delete')
+async def users_delete(login_data: UserLogin) -> UserLoginResponse:
+    name = login_data.name
+    pwd = login_data.pwd
+    db_pwd = DB.get_pwd(name)
+    if db_pwd is None:
+        return UserLoginResponse(status=f'User {name} does not exist', content=None)
+    if db_pwd != pwd:
+        return UserLoginResponse(status=f'Wrong password for {name}!', content=None)
+    delete_user_total(name)
+    return UserLoginResponse(status='ok', content=None)
 
 
-@app.post('/admin')
-async def admin(request: Request):
-    to_do = await request.json()
-    job = to_do['job']
-    user = DB.find_user(to_do['name'])
-    if not user:
-        return {
-            'status': f'User {to_do["name"]} does not exist'
-        }
-    content = None
-    match job:
-        case 'user_description':
-            status_list = ['guest', 'admin']
-            description = {kind: [v['idx'] for v in user[kind]] for kind in DB.ARRAYS}
-            description['time'] = user.get('time', time_now())
-            content = {
-                'list': status_list,
-                'status': user['status'],
-                'description': description
-            }
-        case 'status':
-            new_status = to_do['status']
-            if new_status == user['status']:
-                return {
-                    'status': f'Status of {to_do["name"]} is already set as {new_status}'
-                }
-            DB.update_user(to_do['name'], {'status': new_status})
-    return {
-        'status': 'ok',
-        'content': content
-    }
+@app.put('/users/settings')
+async def users_settings(values: UserUpdateSettings) -> Response:
+    name = values.name
+    db_user = DB.find_user(name)
+    if db_user is None:
+        return Response(status_code=404)
+    DB.update_user_settings(values)
+    return Response(status_code=200)
 
 
-@app.post('/replay')
-async def replay(request: Request):
-    to_do = await request.json()
-    idx = to_do['idx']
-    status = 'ok'
-    content = DB.get_game(idx)
-    if content is None:
-        status = f'Item with name {idx} is not in Storage'
-    return {
-        'status': status,
-        'content': content
-    }
+@app.post('/jobs/train')
+async def jobs_train(job: TrainingAgentJob) -> str:
+    running_now = DB.check_train_test_job(job.user)
+    if running_now is not None:
+        return f"Currently running {running_now}. Stop/Kill it first."
+    agent_exists = DB.check_agent(job.name)
+    if job.isNew:
+        if agent_exists:
+            return f"Agent {job.name} already exists, choose another name"
+        DB.new_agent(job)
+    elif not agent_exists:
+        return f"Agent {job.name} doesn't exist anymore"
+    if job.episodes:
+        job.description = f"Training {job.name} for {job.user}"
+        job.type = JobType.TRAIN
+        DB.new_job(job)
+    return "ok"
 
 
-@app.post('/slow')
-async def slow(request: Request):
-    to_do = await request.json()
-    mode = to_do['mode']
-    agent_idx = to_do['agent']
-    name = to_do['name']
-    match mode:
-        case 'train':
-            if to_do['is_new'] and (agent_idx in DB.all_items('Agents')):
-                return {
-                    'status': f'Agent {agent_idx} already exists, choose another name'
-                }
-            DB.replace_agent(name, to_do)
-        case 'watch':
-            if (agent_idx not in EXTRA_AGENTS) and \
-                    (agent_idx not in DB.all_items('Agents')) or \
-                    (full_key(agent_idx) not in S3.list_files()):
-                return {
-                    'status': f'Agent {agent_idx} does not exist or weights were not saved yet'
-                }
-            DB.delete_watch_user(to_do['current'])
-            DB.new_user(name, None, 'tmp')
-    DB.add_array_item(name, to_do, 'Jobs')
-    return {
-        'status': 'ok',
-        'content': None
-    }
+@app.post('/jobs/test')
+async def jobs_test(job: TestAgentJob) -> str:
+    running_now = DB.check_train_test_job(job.user)
+    if running_now is not None:
+        return f"Currently running {running_now}. Stop/Kill it first."
+    if (job.name not in EXTRA_AGENTS) and not DB.check_agent(job.name):
+        return f"Agent {job.name} doesn't exist"
+    job.description = f"Testing {job.name} for {job.user}"
+    job.type = JobType.TEST
+    DB.new_job(job)
+    return "ok"
 
 
-@app.post('/job_status')
-async def job_status(request: Request):
-    to_do = await request.json()
-    idx = to_do['idx']
-    status = to_do['status']
-    DB.set_job_status(idx, status)
-    return {
-        'status': 'ok',
-        'content': None
-    }
+@app.post('/watch/new_agent')
+async def watch_new_agent(job: WatchAgentJob) -> str:
+    previous_user = job.previous
+    if previous_user:
+        DB.cancel_job(previous_user, JobCancelType.KILL)
+        DB.games.delete_many({'user': previous_user})
+    DB.new_watch_job(job)
+    return "ok"
 
 
-@app.post('/watch')
-async def watch(request: Request):
-    to_do = await request.json()
-    idx = to_do['idx']
-    mode = to_do['mode']
-    status = 'ok'
-    content = None
-    match mode:
-        case 'check_agent_load':
-            content = DB.check_job_status(idx)
-            if content in (1, 2):
-                status = 'not loaded yet'
-        case 'get_moves':
-            job = DB.get_item(idx, 'Jobs')
-            if job is None:
-                status = f'Looks like <{idx}> process terminated'
-            else:
-                i = to_do['break']
-                content = {
-                    'moves': job['moves'][i:],
-                    'tiles': job['tiles'][i:],
-                }
-        case 'once_again':
-            count = DB.rerun_watch_job(idx, to_do['row'])
-            if not count:
-                status = f'<{idx}> process expired. Use "Watch Agent" button again'
-    return {
-        'status': status,
-        'content': content
-    }
+@app.post('/watch/new_game')
+async def watch_new_game(job: GameWatchNew):
+    DB.new_watch_game(job)
+
+
+@app.post('/watch/new_moves')
+async def watch_new_moves(req: NewMovesRequest) -> NewMovesResponse:
+    return DB.new_watch_moves(req)
+
+
+@app.post('/jobs/description')
+async def jobs_description(job_request: SimpleUserRequest) -> JobUpdateResponse:
+    user = job_request.userName
+    job = DB.check_train_test_job(user)
+    if job is None:
+        return JobUpdateResponse(status=f"No running jobs for {user}")
+    return JobUpdateResponse(status=f"ok", job=job)
+
+
+@app.post('/jobs/cancel')
+async def jobs_cancel(cancel_request: JobCancelRequest) -> str:
+    description = cancel_request.description
+    cancel_type = cancel_request.type
+    count = DB.cancel_job(description, cancel_type)
+    if not count:
+        return "Job doesn't exist anymore"
+    return f'{cancel_type.value} "{description}": processing request'
+
+
+@app.post('/logs/update')
+async def jobs_description(logs_request: SimpleUserRequest) -> LogsUpdateResponse:
+    user = logs_request.userName
+    ACTIVE_USERS[user] = 0
+    new_logs = DB.update_logs(user)
+    if new_logs is None and user != "Login":
+        return LogsUpdateResponse(status=f'User {user} does not exist')
+    return LogsUpdateResponse(status="ok", logs=new_logs)
+
+
+@app.put('/logs/clear')
+async def jobs_description(clear_request: SimpleUserRequest):
+    user = clear_request.userName
+    DB.clear_logs(user)
+
+
+@app.post('/agents/list')
+async def agents_list(agent_list_request: ItemListRequest) -> AgentListResponse:
+    return DB.agent_list(agent_list_request)
+
+
+@app.post('/games/list')
+async def games_list(game_list_request: ItemListRequest) -> GameListResponse:
+    return DB.game_list(game_list_request)
+
+
+@app.post('/agents/just_names')
+async def just_agent_names(agent_list_request: ItemListRequest) -> JustNamesResponse:
+    return DB.just_names(agent_list_request, ItemType.AGENTS)
+
+
+@app.delete('/item/delete')
+async def item_delete(delete_item_request: ItemDeleteRequest):
+    delete_item_total(delete_item_request)
+
+
+@app.get('/games/{name}')
+async def full_game(name: str) -> FullGameResponse:
+    return DB.full_game(name)
 
 
 if __name__ == '__main__':
