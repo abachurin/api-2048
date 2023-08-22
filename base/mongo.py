@@ -7,7 +7,7 @@ from .types import *
 class Mongo:
 
     max_logs = 500
-    no_watch_game_pattern = re.compile('^(?!\\*).*')
+    watch_game_pattern = {"$regex": r'^\*'}
     game_pattern = {
         'idx': 'game name',
         'player': 'agent or user',
@@ -79,7 +79,7 @@ class Mongo:
         if item_type == ItemType.AGENTS:
             items = self.agents.find({})
         else:
-            items = self.games.find({"name": self.no_watch_game_pattern})
+            items = self.games.find({"name": self.watch_game_pattern})
         if items is None:
             return JustNamesResponse(status='Unable to get Agents from DB', list=None)
         if req.scope == ItemRequestScope.USER:
@@ -164,7 +164,7 @@ class Mongo:
         self.users.update_one({'name': name}, {'$set': {'logs': []}})
 
     def game_list(self, req: ItemListRequest) -> GameListResponse:
-        games = self.games.find({"name": self.no_watch_game_pattern})
+        games = self.games.find({"name": self.watch_game_pattern})
         if games is None:
             return GameListResponse(status='Unable to get Games from DB', list=None)
         if req.scope == ItemRequestScope.USER:
