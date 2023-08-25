@@ -1,7 +1,7 @@
 import threading
 import time
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 import uvicorn
@@ -20,7 +20,7 @@ def set_inactive():
                 to_delete.append(name)
         for name in to_delete:
             ACTIVE_USERS.pop(name, None)
-        time.sleep(8)
+        time.sleep(5)
 
 
 threading.Thread(target=set_inactive, daemon=True).start()
