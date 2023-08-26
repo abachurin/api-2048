@@ -45,6 +45,7 @@ async def root():
 async def users_login(login_data: UserLogin) -> UserLoginResponse:
     name = login_data.name
     pwd = login_data.pwd
+    print(ACTIVE_USERS)
     if name in ACTIVE_USERS:
         return UserLoginResponse(status=f'{name} is already logged in', content=None)
     db_pwd = DB.get_pwd(name)
