@@ -7,24 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from base.utils import *
 
-ACTIVE_USERS = {}
-RESTRICTED_USERNAMES = {"Login"}
-
-
-def set_inactive():
-    while True:
-        print(ACTIVE_USERS)
-        to_delete = []
-        for name in ACTIVE_USERS:
-            ACTIVE_USERS[name] += 1
-            if ACTIVE_USERS[name] == 2:
-                to_delete.append(name)
-        for name in to_delete:
-            ACTIVE_USERS.pop(name, None)
-        time.sleep(5)
-
-
-threading.Thread(target=set_inactive, daemon=True).start()
+RESTRICTED_USERNAMES = {"Login", "Loki"}
 
 app = FastAPI()
 
@@ -46,8 +29,6 @@ async def root():
 async def users_login(login_data: UserLogin) -> UserLoginResponse:
     name = login_data.name
     pwd = login_data.pwd
-    if name in ACTIVE_USERS:
-        return UserLoginResponse(status=f'{name} is already logged in', content=None)
     db_pwd = DB.get_pwd(name)
     if db_pwd is None:
         return UserLoginResponse(status=f'User {name} does not exist', content=None)
@@ -56,7 +37,6 @@ async def users_login(login_data: UserLogin) -> UserLoginResponse:
     DB.reset_last_log(name)
     db_user = DB.find_user(name)
     user_frontend = restrict(UserCore, db_user)
-    ACTIVE_USERS[name] = 0
     return UserLoginResponse(status='ok', content=user_frontend)
 
 
@@ -169,7 +149,6 @@ async def jobs_cancel(cancel_request: JobCancelRequest) -> str:
 @app.post('/logs/update')
 async def jobs_description(logs_request: SimpleUserRequest) -> LogsUpdateResponse:
     user = logs_request.userName
-    ACTIVE_USERS[user] = 0
     new_logs = DB.update_logs(user)
     if new_logs is None and user != "Login":
         return LogsUpdateResponse(status=f'User {user} does not exist')
