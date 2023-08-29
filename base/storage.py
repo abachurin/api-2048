@@ -1,5 +1,3 @@
-import boto3
-import pickle
 from .start import *
 
 

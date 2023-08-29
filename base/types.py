@@ -1,9 +1,7 @@
-from pydantic import BaseModel
-from typing import Optional, List, Dict, Union
-from enum import Enum
-import json
+from .start import *
 
 
+# Helper functions
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Enum):
@@ -16,9 +14,11 @@ def pydantic_to_mongo(obj) -> dict:
     return json.loads(obj_json)
 
 
-def restrict(cls, obj):
+def reduce_to_class(cls, obj):
     return cls(**obj.dict())
 
+
+# Enum
 
 class UserLevel(Enum):
     GUEST = 0
@@ -53,9 +53,42 @@ class ItemType(Enum):
     GAMES = "Games"
 
 
-class UserLogin(BaseModel):
-    name: str
-    pwd: str
+# Admin and general stuff
+
+RAM = {
+    JobType.TRAIN: {
+        2: 0.1,
+        3: 0.3,
+        4: 1,
+        5: 50,
+        6: 4000,
+    },
+    JobType.TEST: {
+        2: 0.1,
+        3: 0.3,
+        4: 1,
+        5: 50,
+        6: 4000,
+    },
+    JobType.WATCH: {
+        2: 0.1,
+        3: 0.3,
+        4: 1,
+        5: 50,
+        6: 4000,
+    }
+}
+
+
+class Admin(BaseModel):
+    name: str = "admin"
+    logs: list[str] = []
+    memoUsed: int = 0
+    memoFree: int = 0
+    memoProjected: int = 0
+    s3Used: int = 0
+    mongoUsed: int = 0
+    numJobs: int = 0
 
 
 class SimpleUserRequest(BaseModel):
@@ -64,6 +97,28 @@ class SimpleUserRequest(BaseModel):
 
 class ItemListRequest(SimpleUserRequest):
     scope: ItemRequestScope
+
+
+class ItemDeleteRequest(BaseModel):
+    name: str
+    kind: ItemType
+
+
+class JobCancelRequest(BaseModel):
+    description: str
+    type: JobCancelType
+
+
+class JustNamesResponse(BaseModel):
+    status: str
+    list: Optional[List[str]]
+
+
+# User management
+
+class UserLogin(BaseModel):
+    name: str
+    pwd: str
 
 
 class UserCore(BaseModel):
@@ -99,6 +154,8 @@ class UserUpdateSettings(BaseModel):
     paletteName: str
 
 
+# Agent
+
 class AgentCore(BaseModel):
     user: str
     name: str
@@ -122,6 +179,13 @@ class Agent(AgentDescription):
     initialAlpha: float
 
 
+class AgentListResponse(BaseModel):
+    status: str
+    list: Optional[Dict[str, AgentDescription]]
+
+
+# Train/Test Job
+
 class BaseJob(BaseModel):
     description: Optional[str]
     type: Optional[JobType]
@@ -129,27 +193,31 @@ class BaseJob(BaseModel):
     start: Optional[int]
     timeElapsed: Optional[int]
     remainingTimeEstimate: Optional[int]
+    memoProjected: Optional[int]
 
 
-class TrainingAgentJob(AgentCore, BaseJob):
+class TrainJob(AgentCore, BaseJob):
     episodes: int
     isNew: bool
 
 
-class WatchAgentJobBase(BaseJob):
+class TestWatchJobBase(BaseJob):
     user: str
     name: str
     depth: int
     width: int
     trigger: int
+    memoProjected: Optional[int]
 
 
-class TestAgentJob(WatchAgentJobBase):
+class TestJob(TestWatchJobBase):
     episodes: int
 
 
-Job: type = Union[TrainingAgentJob, TestAgentJob, None]
+Job: type = Union[TrainJob, TestJob, None]
 
+
+# Job Description
 
 class JobDescriptionBase(BaseModel):
     type: JobType
@@ -179,25 +247,10 @@ class JobUpdateResponse(BaseModel):
     job: Optional[JobDescription]
 
 
-class JobCancelRequest(BaseModel):
-    description: str
-    type: JobCancelType
-
-
 # Logs
 class LogsUpdateResponse(BaseModel):
     status: str
     logs: Optional[list[str]]
-
-
-class AgentListResponse(BaseModel):
-    status: str
-    list: Optional[Dict[str, AgentDescription]]
-
-
-class JustNamesResponse(BaseModel):
-    status: str
-    list: Optional[List[str]]
 
 
 # Games
@@ -246,7 +299,9 @@ class FullGameResponse(BaseModel):
     game: Optional[Game]
 
 
-class WatchAgentJob(WatchAgentJobBase):
+# Watch Job
+
+class WatchAgentJob(TestWatchJobBase):
     startGame: GameWatch
     previous: str
     newGame: Optional[bool]
@@ -267,9 +322,3 @@ class NewMovesResponse(BaseModel):
     moves: List[int]
     tiles: List[GameTile]
     loadingWeights: bool
-
-
-# Delete item
-class ItemDeleteRequest(BaseModel):
-    name: str
-    kind: ItemType
