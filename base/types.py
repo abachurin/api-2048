@@ -54,30 +54,7 @@ class ItemType(Enum):
 
 
 # Admin and general stuff
-
-RAM = {
-    JobType.TRAIN: {
-        2: 0.1,
-        3: 0.3,
-        4: 1,
-        5: 50,
-        6: 4000,
-    },
-    JobType.TEST: {
-        2: 0.1,
-        3: 0.3,
-        4: 1,
-        5: 50,
-        6: 4000,
-    },
-    JobType.WATCH: {
-        2: 0.1,
-        3: 0.3,
-        4: 1,
-        5: 50,
-        6: 4000,
-    }
-}
+RAM_RESERVE = 500
 
 
 class Admin(BaseModel):
@@ -85,7 +62,6 @@ class Admin(BaseModel):
     logs: list[str] = []
     memoUsed: int = 0
     memoFree: int = 0
-    memoProjected: int = 0
     s3Used: int = 0
     mongoUsed: int = 0
     numJobs: int = 0
@@ -193,7 +169,6 @@ class BaseJob(BaseModel):
     start: Optional[int]
     timeElapsed: Optional[int]
     remainingTimeEstimate: Optional[int]
-    memoProjected: Optional[int]
 
 
 class TrainJob(AgentCore, BaseJob):
@@ -207,7 +182,6 @@ class TestWatchJobBase(BaseJob):
     depth: int
     width: int
     trigger: int
-    memoProjected: Optional[int]
 
 
 class TestJob(TestWatchJobBase):
@@ -248,24 +222,19 @@ class JobUpdateResponse(BaseModel):
 
 
 # Logs
+
 class LogsUpdateResponse(BaseModel):
     status: str
     logs: Optional[list[str]]
 
 
 # Games
+
 class GameCore(BaseModel):
     user: str
     name: str
     row: List[List[int]]
     score: int
-
-
-class GameWatch(BaseModel):
-    name: str
-    initial: List[List[int]]
-    score: int
-    numMoves: int
 
 
 class Offset(BaseModel):
@@ -301,10 +270,15 @@ class FullGameResponse(BaseModel):
 
 # Watch Job
 
+class GameWatch(BaseModel):
+    initial: List[List[int]]
+    score: int
+    numMoves: int
+
+
 class WatchAgentJob(TestWatchJobBase):
     startGame: GameWatch
     previous: str
-    newGame: Optional[bool]
     loadingWeights: Optional[bool]
 
 
@@ -314,7 +288,6 @@ class GameWatchNew(BaseModel):
 
 
 class NewMovesRequest(SimpleUserRequest):
-    name: str
     numMoves: int
 
 

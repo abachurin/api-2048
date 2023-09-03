@@ -16,26 +16,21 @@ class Mongo:
         self.jobs = db['jobs']
 
     # Admin and general functions
+
     def setup_admin(self):
         admin = self.users.find_one({'name': 'admin'})
         if not admin:
             admin = Admin()
             self.users.insert_one(pydantic_to_mongo(admin))
 
-    def admin_adjust_memo(self, job_name: str):
-        admin = self.users.find_one({'name': 'admin'}, {'memoProjected': 1})
-        job = self.jobs.find_one({'description': job_name}, {'memoProjected': 1})
-        if admin and job:
-            self.users.update_one({'name': 'admin'},
-                                  {'$set': {'memoProjected': admin['memoProjected'] - job['memoProjected']}})
-
     def check_available_memory(self) -> Tuple[int, int]:
-        admin = self.users.find_one({'name': 'admin'}, {'memoFree': 1, 'memoProjected': 1})
+        admin = self.users.find_one({'name': 'admin'}, {'memoFree': 1, 'numJobs': 1})
         if not admin:
             return 1000000, 0
-        return admin['memoFree'], admin['memoProjected']
+        return admin['memoFree'], admin['numJobs']
 
     # Logs management
+
     def update_logs(self, user_name: str) -> Union[None, List[str]]:
         user = self.find_user(user_name)
         if user is None:
@@ -54,7 +49,11 @@ class Mongo:
     def clear_logs(self, name: str):
         self.users.update_one({'name': name}, {'$set': {'logs': []}})
 
+    def reset_last_log(self, user_name: str):
+        self.users.update_one({'name': user_name}, {'$set': {'lastLog': 0}})
+
     # General Item and Job functions
+
     def just_names(self, req: ItemListRequest, item_type: ItemType) -> JustNamesResponse:
         if item_type == ItemType.AGENTS:
             items = self.agents.find({})
@@ -80,10 +79,10 @@ class Mongo:
             return self.jobs.update_one({'description': description},
                                         {'$set': {'status': JobStatus.STOP.value}}).modified_count
         else:
-            self.admin_adjust_memo(description)
             return self.jobs.delete_one({'description': description}).deleted_count
 
     # User management
+
     def get_pwd(self, name: str) -> Union[None, User]:
         pwd = self.users.find_one({'name': name}, {'pwd': 1})
         return pwd['pwd'] if pwd is not None else None
@@ -111,6 +110,7 @@ class Mongo:
         self.users.update_one({'name': values.name}, {'$set': values.dict()})
 
     # Agent functions
+
     def new_agent(self, job: TrainJob) -> Agent:
         agent_core = AgentCore(**job.dict())
         agent_dict = {**agent_core.dict(), 'weightSignature': [], 'bestScore': 0, 'maxTile': 0,
@@ -120,7 +120,7 @@ class Mongo:
 
     def check_agent(self, name: str) -> int:
         if name in EXTRA_AGENTS:
-            return -1
+            return 1
         agent = self.agents.find_one({'name': name}, {'N': 1})
         if agent is None:
             return 0
@@ -139,6 +139,7 @@ class Mongo:
         return AgentListResponse(status='ok', list=agents)
 
     # Train/Test Job functions
+
     def check_train_test_job(self, user_name: str) -> JobDescription:
         job = self.jobs.find_one({'user': user_name})
         if job is None or job['type'] == JobType.WATCH.value:
@@ -151,45 +152,32 @@ class Mongo:
             return TrainJobDescription(**job)
         return TestJobDescription(**job)
 
-    def new_job(self, job: Job, n: int) -> str:
-        memory = RAM[job.type][n]
-        free, projected = self.check_available_memory()
-        if free - projected < memory:
-            return f'Sorry, Worker is at full capacity. ' \
-                   f'Available memory [{free}mb] too low. Job needs [{memory}mb]Try again later'
+    def new_job(self, job: Job) -> str:
+        free_memory, num_jobs = self.check_available_memory()
+        if free_memory < RAM_RESERVE:
+            return f'We are sorry, Worker is at full capacity. Currently running {num_jobs}. Try again later.'
         job.status = JobStatus.PENDING
         job.start = 0
         job.timeElapsed = 0
         job.remainingTimeEstimate = 0
-        job.memoProjected = memory
-        self.users.update_one({'name': 'admin'}, {'$inc': {'memoProjected': projected + memory}})
         self.jobs.insert_one(pydantic_to_mongo(job))
         return 'ok'
 
     # Watch Job functions
+
     def new_watch_job(self, job: WatchAgentJob, n: int) -> str:
-        memory = RAM[JobType.WATCH][n]
-        free, projected = self.check_available_memory()
-        if free - projected < memory:
-            return f'Sorry, Worker is at full capacity. ' \
-                   f'Available memory [{free}mb] too low. Job needs [{memory}mb]. Try again later'
+        free_memory, num_jobs = self.check_available_memory()
+        if free_memory < RAM_RESERVE:
+            return f'We are sorry, Worker is at full capacity. Currently running {num_jobs}. Try again later.'
         job.type = JobType.WATCH
         job.status = JobStatus.PENDING
         job.description = job.user
-        job.newGame = True
         job.loadingWeights = True
-        job.memoProjected = memory
-        self.users.update_one({'name': 'admin'}, {'$inc': {'memoProjected': projected + memory}})
         self.jobs.insert_one(pydantic_to_mongo(job))
         return 'ok'
 
-    def new_watch_game(self, job: GameWatchNew):
-        self.games.delete_one({'name': job.user})
-        self.jobs.update_one({'description': job.user}, {'$set': {'startGame': pydantic_to_mongo(job.startGame),
-                                                                  'loadingWeights': True, 'newGame': True}})
-
     def new_watch_moves(self, req: NewMovesRequest) -> NewMovesResponse:
-        game = self.games.find_one({'name': req.name}, {'moves': 1, 'tiles': 1, 'numMoves': 1})
+        game = self.games.find_one({'user': req.userName}, {'moves': 1, 'tiles': 1, 'numMoves': 1})
         job = self.jobs.find_one({'description': req.userName}, {'loadingWeights': 1})
         if not job:
             return NewMovesResponse(moves=[], tiles=[], loadingWeights=False)
@@ -203,10 +191,8 @@ class Mongo:
             tiles = [{'position': {'x': v[0], 'y': v[1]}, 'value': v[2]} for v in game['tiles'][cutoff:]]
         return NewMovesResponse(moves=moves, tiles=tiles, loadingWeights=loading)
 
-    def reset_last_log(self, user_name: str):
-        self.users.update_one({'name': user_name}, {'$set': {'lastLog': 0}})
-
     # Replay Game functions
+
     def game_list(self, req: ItemListRequest) -> GameListResponse:
         games = self.games.find({"name": self.not_watch_game_pattern})
         if games is None:

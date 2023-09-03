@@ -152,7 +152,7 @@ async def jobs_train(job: TrainJob) -> str:
     if job.episodes:
         job.description = f"Training {job.name} for {job.user}"
         job.type = JobType.TRAIN
-        return DB.new_job(job, job.N)
+        return DB.new_job(job)
 
 
 @app.post('/jobs/test')
@@ -165,7 +165,7 @@ async def jobs_test(job: TestJob) -> str:
         return f"Agent {job.name} doesn't exist"
     job.description = f"Testing {job.name} for {job.user}"
     job.type = JobType.TEST
-    return DB.new_job(job, n)
+    return DB.new_job(job)
 
 
 # Watch Agent Job endpoints
@@ -175,16 +175,11 @@ async def watch_new_agent(job: WatchAgentJob) -> str:
     previous_user = job.previous
     if previous_user:
         DB.cancel_job(previous_user, JobCancelType.KILL)
-        DB.games.delete_many({'user': previous_user})
+        DB.games.delete_one({'user': previous_user})
     n = DB.check_agent(job.name)
     if not n:
         return f"Agent {job.name} doesn't exist"
-    return DB.new_watch_job(job, n)
-
-
-@app.post('/watch/new_game')
-async def watch_new_game(job: GameWatchNew):
-    DB.new_watch_game(job)
+    return DB.new_watch_job(job)
 
 
 @app.post('/watch/new_moves')
@@ -195,6 +190,7 @@ async def watch_new_moves(req: NewMovesRequest) -> NewMovesResponse:
 @app.delete('/watch/cancel')
 async def watch_job_cancel(req: SimpleUserRequest):
     DB.cancel_job(req.userName, JobCancelType.KILL)
+    DB.games.delete_one({'user': req.userName})
 
 
 if __name__ == '__main__':
