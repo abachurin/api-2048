@@ -19,6 +19,8 @@ class Mongo:
 
     def setup_admin(self):
         admin = self.users.find_one({'name': 'admin'})
+        # print(admin['memoUsed'], admin['memoFree'], admin['numJobs'])
+        # x = input()
         if not admin:
             admin = Admin()
             self.users.insert_one(pydantic_to_mongo(admin))
@@ -165,7 +167,7 @@ class Mongo:
 
     # Watch Job functions
 
-    def new_watch_job(self, job: WatchAgentJob, n: int) -> str:
+    def new_watch_job(self, job: WatchAgentJob) -> str:
         free_memory, num_jobs = self.check_available_memory()
         if free_memory < RAM_RESERVE:
             return f'We are sorry, Worker is at full capacity. Currently running {num_jobs}. Try again later.'
