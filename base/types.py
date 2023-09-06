@@ -18,6 +18,14 @@ def reduce_to_class(cls, obj):
     return cls(**obj.dict())
 
 
+def class_keys(cls: type) -> List[str]:
+    keys = []
+    for c in reversed(cls.mro()):
+        if hasattr(c, "__annotations__"):
+            keys.extend(c.__annotations__.keys())
+    return keys
+
+
 # Enum
 
 class UserLevel(Enum):
@@ -59,19 +67,20 @@ RAM_RESERVE = 500
 
 class Admin(BaseModel):
     name: str = "admin"
-    logs: list[str] = []
     memoUsed: int = 0
     memoFree: int = 0
     s3Used: int = 0
     mongoUsed: int = 0
     numJobs: int = 0
+    logs: list[str] = []
+    lastLog: int = 0
 
 
-class SimpleUserRequest(BaseModel):
+class UserName(BaseModel):
     userName: str
 
 
-class ItemListRequest(SimpleUserRequest):
+class ItemListRequest(UserName):
     scope: ItemRequestScope
 
 
@@ -106,7 +115,6 @@ class UserCore(BaseModel):
     animationSpeed: int = 6
     legends: bool = True
     paletteName: str = "One"
-    agents: list[str] = []
 
 
 class User(UserCore):
@@ -117,7 +125,7 @@ class User(UserCore):
 
 class UserLoginResponse(BaseModel):
     status: str
-    content: Optional[User]
+    content: Optional[UserCore]
 
 
 class UserUpdateSettings(BaseModel):
@@ -223,19 +231,16 @@ class JobUpdateResponse(BaseModel):
 
 # Logs
 
+class LogUpdateRequest(UserName):
+    lastLog: int
+
+
 class LogsUpdateResponse(BaseModel):
     status: str
     logs: Optional[list[str]]
 
 
 # Games
-
-class GameCore(BaseModel):
-    user: str
-    name: str
-    row: List[List[int]]
-    score: int
-
 
 class Offset(BaseModel):
     x: int
@@ -247,12 +252,15 @@ class GameTile(BaseModel):
     value: int
 
 
-class GameDescription(GameCore):
+class GameDescription(BaseModel):
+    user: str
+    name: str
+    score: int
     numMoves: int
     maxTile: int
 
 
-class Game(GameCore):
+class Game(BaseModel):
     initial: List[List[int]]
     moves: List[int]
     tiles: List[GameTile]
@@ -287,7 +295,7 @@ class GameWatchNew(BaseModel):
     startGame: GameWatch
 
 
-class NewMovesRequest(SimpleUserRequest):
+class NewMovesRequest(UserName):
     numMoves: int
 
 

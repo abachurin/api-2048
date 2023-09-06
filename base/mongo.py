@@ -4,7 +4,19 @@ from .types import *
 class Mongo:
 
     max_logs = 500
-    not_watch_game_pattern = {"$not": {"$regex": r'^\*'}}
+    not_watch_game_pattern = {'name': {"$not": {"$regex": r'^\*'}}}
+    user_description_filter = {v: 1 for v in class_keys(UserCore)}
+    game_description_filter = {v: 1 for v in class_keys(GameDescription)}
+    full_game_filter = {v: 1 for v in class_keys(Game)}
+    agent_description_filter = {v: 1 for v in class_keys(AgentDescription)}
+    new_agent_params = {
+        'weightSignature': [],
+        'bestScore': 0,
+        'maxTile': 0,
+        'lastTrainingEpisode': 0,
+        'history': [],
+        'collectStep': 100
+    }
 
     def __init__(self, credentials: dict):
         self.cluster = f'mongodb+srv://{credentials["user"]}:{credentials["pwd"]}@{credentials["location"]}'
@@ -18,9 +30,7 @@ class Mongo:
     # Admin and general functions
 
     def setup_admin(self):
-        admin = self.users.find_one({'name': 'admin'})
-        # print(admin['memoUsed'], admin['memoFree'], admin['numJobs'])
-        # x = input()
+        admin = self.users.find_one({'name': 'admin'}, {'_id': 1})
         if not admin:
             admin = Admin()
             self.users.insert_one(pydantic_to_mongo(admin))
@@ -33,36 +43,28 @@ class Mongo:
 
     # Logs management
 
-    def update_logs(self, user_name: str) -> Union[None, List[str]]:
-        user = self.find_user(user_name)
+    def update_logs(self, req: LogUpdateRequest) -> Tuple[List[str], int]:
+        user_name = req.userName
+        user = self.users.find_one({'name': user_name}, {'lastLog': 1})
         if user is None:
-            return None
-        logs = user.logs
-        last_log = user.lastLog
-        new_logs = logs[last_log:]
-        if len(new_logs) > self.max_logs:
-            new_logs = new_logs[-self.max_logs:]
-        if len(logs) > self.max_logs:
-            logs = logs[-self.max_logs:]
-            self.users.update_one({'name': user_name}, {'$set': {'logs': logs}})
-        self.users.update_one({'name': user_name}, {'$set': {'lastLog': len(logs)}})
-        return new_logs
+            return [], -1
+        extra = user['lastLog'] - req.lastLog
+        user_new_logs = self.users.find_one({'name': user_name}, {'logs': {'$slice': -extra}})
+        print(user_new_logs)
+        return user_new_logs['logs'], user['lastLog']
 
     def clear_logs(self, name: str):
         self.users.update_one({'name': name}, {'$set': {'logs': []}})
-
-    def reset_last_log(self, user_name: str):
-        self.users.update_one({'name': user_name}, {'$set': {'lastLog': 0}})
 
     # General Item and Job functions
 
     def just_names(self, req: ItemListRequest, item_type: ItemType) -> JustNamesResponse:
         if item_type == ItemType.AGENTS:
-            items = self.agents.find({})
+            items = self.agents.find({}, {'name': 1})
         else:
-            items = self.games.find({"name": self.not_watch_game_pattern})
+            items = self.games.find(self.not_watch_game_pattern, {'name': 1})
         if items is None:
-            return JustNamesResponse(status='Unable to get Agents from DB', list=None)
+            return JustNamesResponse(status='Unable to get items from Database', list=None)
         if req.scope == ItemRequestScope.USER:
             items = [v['name'] for v in items if v['user'] == req.userName]
         else:
@@ -89,18 +91,18 @@ class Mongo:
         pwd = self.users.find_one({'name': name}, {'pwd': 1})
         return pwd['pwd'] if pwd is not None else None
 
-    def find_user(self, name: str) -> Union[None, User]:
-        user_dict = self.users.find_one({'name': name})
-        if user_dict is None:
-            return None
-        return User.parse_obj(user_dict)
+    def find_user(self, name: str) -> Union[None, UserCore]:
+        user = self.users.find_one({'name': name}, self.user_description_filter)
+        if user:
+            return UserCore.parse_obj(user)
+        return None
 
-    def new_user(self, name: str, pwd: str, level: UserLevel = UserLevel.USER) -> User:
+    def new_user(self, name: str, pwd: str, level: UserLevel = UserLevel.USER) -> UserCore:
         if name == "Loki":
             level = UserLevel.ADMIN
         user = User(name=name, pwd=pwd, level=level)
         self.users.insert_one(pydantic_to_mongo(user))
-        return user
+        return reduce_to_class(UserCore, user)
 
     def delete_user(self, name: str):
         self.jobs.delete_many({'user': name})
@@ -115,8 +117,7 @@ class Mongo:
 
     def new_agent(self, job: TrainJob) -> Agent:
         agent_core = AgentCore(**job.dict())
-        agent_dict = {**agent_core.dict(), 'weightSignature': [], 'bestScore': 0, 'maxTile': 0,
-                      'lastTrainingEpisode': 0, 'initialAlpha': job.alpha, 'history': [], 'collectStep': 100}
+        agent_dict = {**agent_core.dict(), **self.new_agent_params, 'initialAlpha': job.alpha}
         self.agents.insert_one(agent_dict)
         return Agent.parse_obj(agent_dict)
 
@@ -129,7 +130,7 @@ class Mongo:
         return agent['N']
 
     def agent_list(self, req: ItemListRequest) -> AgentListResponse:
-        agents = self.agents.find({})
+        agents = self.agents.find({}, self.agent_description_filter)
         if agents is None:
             return AgentListResponse(status='Unable to get Agents from DB', list=None)
         if req.scope == ItemRequestScope.USER:
@@ -196,7 +197,7 @@ class Mongo:
     # Replay Game functions
 
     def game_list(self, req: ItemListRequest) -> GameListResponse:
-        games = self.games.find({"name": self.not_watch_game_pattern})
+        games = self.games.find(self.not_watch_game_pattern, self.game_description_filter)
         if games is None:
             return GameListResponse(status='Unable to get Games from DB', list=None)
         if req.scope == ItemRequestScope.USER:
@@ -206,7 +207,7 @@ class Mongo:
         return GameListResponse(status='ok', list=games)
 
     def full_game(self, game_name: str) -> FullGameResponse:
-        game = self.games.find_one({'name': game_name})
+        game = self.games.find_one({'name': game_name}, self.full_game_filter)
         if game is None:
             return FullGameResponse(status='No game with this name in DB')
         game['tiles'] = [{'position': {'x': v[0], 'y': v[1]}, 'value': v[2]} for v in game['tiles']]

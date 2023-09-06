@@ -24,48 +24,45 @@ async def root():
 
 @app.post('/users/login')
 async def users_login(login_data: UserLogin) -> UserLoginResponse:
-    name = login_data.name
+    user_name = login_data.name
     pwd = login_data.pwd
-    db_pwd = DB.get_pwd(name)
+    db_pwd = DB.get_pwd(user_name)
     if db_pwd is None:
-        return UserLoginResponse(status=f'User {name} does not exist', content=None)
+        return UserLoginResponse(status=f'User {user_name} does not exist', content=None)
     if db_pwd != pwd:
-        return UserLoginResponse(status=f'Wrong password for {name}!', content=None)
-    DB.reset_last_log(name)
-    db_user = DB.find_user(name)
-    user_frontend = reduce_to_class(UserCore, db_user)
-    return UserLoginResponse(status='ok', content=user_frontend)
+        return UserLoginResponse(status=f'Wrong password for {user_name}!', content=None)
+    db_user = DB.find_user(user_name)
+    return UserLoginResponse(status='ok', content=db_user)
 
 
 @app.post('/users/register')
 async def users_register(login_data: UserLogin) -> UserLoginResponse:
-    name = login_data.name
+    user_name = login_data.name
     pwd = login_data.pwd
-    db_pwd = DB.get_pwd(name)
-    if db_pwd is not None or name in RESTRICTED_USERNAMES:
-        return UserLoginResponse(status=f'User {name} already exists!', content=None)
-    new_user = DB.new_user(name, pwd)
-    user_frontend = reduce_to_class(UserCore, new_user)
-    return UserLoginResponse(status='ok', content=user_frontend)
+    db_pwd = DB.get_pwd(user_name)
+    if db_pwd is not None or user_name in RESTRICTED_USERNAMES:
+        return UserLoginResponse(status=f'User {user_name} already exists!', content=None)
+    new_user = DB.new_user(user_name, pwd)
+    return UserLoginResponse(status='ok', content=new_user)
 
 
 @app.delete('/users/delete')
 async def users_delete(login_data: UserLogin) -> UserLoginResponse:
-    name = login_data.name
+    user_name = login_data.name
     pwd = login_data.pwd
-    db_pwd = DB.get_pwd(name)
+    db_pwd = DB.get_pwd(user_name)
     if db_pwd is None:
-        return UserLoginResponse(status=f'User {name} does not exist', content=None)
+        return UserLoginResponse(status=f'User {user_name} does not exist', content=None)
     if db_pwd != pwd:
-        return UserLoginResponse(status=f'Wrong password for {name}!', content=None)
-    delete_user_total(name)
+        return UserLoginResponse(status=f'Wrong password for {user_name}!', content=None)
+    delete_user_total(user_name)
     return UserLoginResponse(status='ok', content=None)
 
 
 @app.put('/users/settings')
 async def users_settings(values: UserUpdateSettings) -> Response:
-    name = values.name
-    db_user = DB.find_user(name)
+    user_name = values.name
+    db_user = DB.find_user(user_name)
     if db_user is None:
         return Response(status_code=404)
     DB.update_user_settings(values)
@@ -75,26 +72,26 @@ async def users_settings(values: UserUpdateSettings) -> Response:
 # Logs and Job Description
 
 @app.post('/logs/update')
-async def logs_update(logs_request: SimpleUserRequest) -> LogsUpdateResponse:
-    user = logs_request.userName
-    new_logs = DB.update_logs(user)
-    if new_logs is None and user != "Login":
-        return LogsUpdateResponse(status=f'User {user} does not exist')
-    return LogsUpdateResponse(status="ok", logs=new_logs)
+async def logs_update(req: LogUpdateRequest) -> LogsUpdateResponse:
+    user_name = req.userName
+    new_logs, last_log = DB.update_logs(req)
+    if last_log == -1 and user_name != "Login":
+        return LogsUpdateResponse(status=f'User {user_name} does not exist')
+    return LogsUpdateResponse(status="ok", logs=new_logs, lastLog=last_log)
 
 
 @app.put('/logs/clear')
-async def logs_clear(clear_request: SimpleUserRequest):
-    user = clear_request.userName
-    DB.clear_logs(user)
+async def logs_clear(clear_request: UserName):
+    user_name = clear_request.userName
+    DB.clear_logs(user_name)
 
 
 @app.post('/jobs/description')
-async def jobs_description(job_request: SimpleUserRequest) -> JobUpdateResponse:
-    user = job_request.userName
-    job = DB.check_train_test_job(user)
+async def jobs_description(job_request: UserName) -> JobUpdateResponse:
+    user_name = job_request.userName
+    job = DB.check_train_test_job(user_name)
     if job is None:
-        return JobUpdateResponse(status=f"No running jobs for {user}")
+        return JobUpdateResponse(status=f"No running jobs for {user_name}")
     return JobUpdateResponse(status=f"ok", job=job)
 
 
@@ -120,9 +117,9 @@ async def item_delete(delete_item_request: ItemDeleteRequest):
     delete_item_total(delete_item_request)
 
 
-@app.get('/games/{name}')
-async def full_game(name: str) -> FullGameResponse:
-    return DB.full_game(name)
+@app.get('/games/{game_name}')
+async def full_game(game_name: str) -> FullGameResponse:
+    return DB.full_game(game_name)
 
 
 @app.post('/jobs/cancel')
@@ -188,7 +185,7 @@ async def watch_new_moves(req: NewMovesRequest) -> NewMovesResponse:
 
 
 @app.delete('/watch/cancel')
-async def watch_job_cancel(req: SimpleUserRequest):
+async def watch_job_cancel(req: UserName):
     DB.cancel_job(req.userName, JobCancelType.KILL)
     DB.games.delete_one({'user': req.userName})
 
