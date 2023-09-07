@@ -238,6 +238,7 @@ class LogUpdateRequest(UserName):
 class LogsUpdateResponse(BaseModel):
     status: str
     logs: Optional[list[str]]
+    lastLog: int
 
 
 # Games

@@ -50,7 +50,6 @@ class Mongo:
             return [], -1
         extra = user['lastLog'] - req.lastLog
         user_new_logs = self.users.find_one({'name': user_name}, {'logs': {'$slice': -extra}})
-        print(user_new_logs)
         return user_new_logs['logs'], user['lastLog']
 
     def clear_logs(self, name: str):
