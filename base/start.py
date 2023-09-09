@@ -12,6 +12,9 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+RAM_RESERVE = 500
+MAX_AGENTS = 5
+
 
 def full_key(name):
     return f'{name}.pkl'

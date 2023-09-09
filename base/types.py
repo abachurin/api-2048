@@ -61,10 +61,6 @@ class ItemType(Enum):
     GAMES = "Games"
 
 
-# Admin and general stuff
-RAM_RESERVE = 500
-
-
 class Admin(BaseModel):
     name: str = "admin"
     memoUsed: int = 0

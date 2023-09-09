@@ -115,7 +115,7 @@ class Mongo:
     # Agent functions
 
     def new_agent(self, job: TrainJob) -> bool:
-        if self.agents.count_documents({'user': job.user}) >= 4:
+        if self.agents.count_documents({'user': job.user}) >= MAX_AGENTS:
             return True
         agent_core = AgentCore(**job.dict())
         agent_dict = {**agent_core.dict(), **self.new_agent_params, 'initialAlpha': job.alpha}
