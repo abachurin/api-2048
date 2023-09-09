@@ -143,7 +143,8 @@ async def jobs_train(job: TrainJob) -> str:
     if job.isNew:
         if agent_exists:
             return f"Agent {job.name} already exists, choose another name"
-        DB.new_agent(job)
+        if DB.new_agent(job):
+            return "You already have a maximum of 10 Agents, delete some before creating new!"
     elif not agent_exists:
         return f"Agent {job.name} doesn't exist anymore"
     if job.episodes:
