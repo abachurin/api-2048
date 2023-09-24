@@ -200,7 +200,7 @@ class Mongo:
     def game_list(self, req: ItemListRequest) -> GameListResponse:
         games = self.games.find(self.not_watch_game_pattern, self.game_description_filter)
         if games is None:
-            return GameListResponse(status='Unable to get Games from DB', list=None)
+            return GameListResponse(status='Unable to get Games from DB')
         if req.scope == ItemRequestScope.USER:
             games = {v['name']: v for v in games if v['user'] == req.userName}
         else:
